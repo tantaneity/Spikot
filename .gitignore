@@ -1,5 +1,6 @@
 .claude/
 build/
+export/
 *.exe
 *.o
 *.obj
