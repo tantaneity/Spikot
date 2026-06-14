@@ -8,4 +8,8 @@
 
 #define BACKGROUND_COLOR (Color){ 18, 18, 24, 255 }
 
+#define CAT_CANVAS_SIZE 16
+#define CAT_RENDER_SCALE 18.0f
+#define CAT_EXPORT_SCALE 24
+
 #endif
