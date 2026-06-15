@@ -99,6 +99,9 @@ int RunAgentTest(void)
         voiceA = newVoiceA;
         voiceB = newVoiceB;
 
+        if (bodyA.foodEaten > foodBeforeA) WorldSpawnFood(world);
+        if (bodyB.foodEaten > foodBeforeB) WorldSpawnFood(world);
+
         windowFoodA += bodyA.foodEaten - foodBeforeA;
         windowFoodB += bodyB.foodEaten - foodBeforeB;
         windowVoiceA += voiceA;
@@ -149,6 +152,8 @@ int RunLearnTest(void)
         int controlBefore = controlBody.foodEaten;
         AgentAct(learner, learnerWorld, &learnerBody, -1, -1, 0.0f, true, NULL, NULL);
         AgentAct(control, controlWorld, &controlBody, -1, -1, 0.0f, false, NULL, NULL);
+        if (learnerBody.foodEaten > learnerBefore) WorldSpawnFood(learnerWorld);
+        if (controlBody.foodEaten > controlBefore) WorldSpawnFood(controlWorld);
         windowLearner += learnerBody.foodEaten - learnerBefore;
         windowControl += controlBody.foodEaten - controlBefore;
 

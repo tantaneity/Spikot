@@ -33,6 +33,9 @@ typedef struct {
 
 void WorldInit(World *world, uint32_t seed);
 void WorldInitOpen(World *world, uint32_t seed);
+void WorldInitRoom(World *world, uint32_t seed);
+void WorldClearInterior(World *world);
+void WorldSpawnFood(World *world);
 void CatBodyInit(CatBody *cat, int x, int y);
 float WorldStepCat(World *world, CatBody *cat, CatAction action, int blockX, int blockY);
 

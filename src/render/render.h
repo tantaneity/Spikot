@@ -27,8 +27,27 @@ void MoodPet(CatView *view);
 void HeartsSpawn(float x, float y);
 void HeartsUpdate(float dt);
 
-void RenderScene(const CatAgent *agentA, const CatBody *bodyA, const CatView *viewA, const PixelCat *catA, float voiceA,
-                 const CatAgent *agentB, const CatBody *bodyB, const CatView *viewB, const PixelCat *catB, float voiceB,
-                 const World *world, bool showBrain, double time);
+typedef enum {
+    ITEM_BOWL,
+    ITEM_BED,
+    ITEM_PLANT,
+    ITEM_POST,
+    ITEM_RUG,
+    ITEM_TYPE_COUNT
+} ItemType;
+
+typedef struct {
+    ItemType type;
+    int x;
+    int y;
+    bool hasFood;
+    float refill;
+} RoomItem;
+
+int PalettePick(Vector2 mouse);
+
+void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view, const PixelCat *cat,
+                 float voice, const World *world, const RoomItem *items, int itemCount,
+                 int heldItem, bool showBrain, double time);
 
 #endif

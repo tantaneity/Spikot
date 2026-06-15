@@ -82,6 +82,31 @@ void WorldInit(World *world, uint32_t seed)
     clearArea(world, CAT_B_START_X, CAT_B_START_Y, 1);
 }
 
+void WorldInitRoom(World *world, uint32_t seed)
+{
+    if (seed == 0u) seed = DEFAULT_SEED;
+    world->rng = seed;
+
+    for (int y = 0; y < WORLD_HEIGHT; y++)
+        for (int x = 0; x < WORLD_WIDTH; x++)
+        {
+            bool border = (x == 0 || y == 0 || x == WORLD_WIDTH - 1 || y == WORLD_HEIGHT - 1);
+            world->tiles[y][x] = border ? TILE_OBSTACLE : TILE_EMPTY;
+        }
+}
+
+void WorldClearInterior(World *world)
+{
+    for (int y = 1; y < WORLD_HEIGHT - 1; y++)
+        for (int x = 1; x < WORLD_WIDTH - 1; x++)
+            world->tiles[y][x] = TILE_EMPTY;
+}
+
+void WorldSpawnFood(World *world)
+{
+    spawnOnEmpty(world, TILE_FOOD);
+}
+
 void WorldInitOpen(World *world, uint32_t seed)
 {
     if (seed == 0u) seed = DEFAULT_SEED;
@@ -175,7 +200,6 @@ float WorldStepCat(World *world, CatBody *cat, CatAction action, int blockX, int
         cat->foodEaten++;
         cat->hunger -= HUNGER_FOOD_RELIEF;
         if (cat->hunger < 0.0f) cat->hunger = 0.0f;
-        spawnOnEmpty(world, TILE_FOOD);
         return REWARD_FOOD + shaped;
     }
 

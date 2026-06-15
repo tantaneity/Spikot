@@ -11,13 +11,17 @@
 #include <stdint.h>
 
 #define SIM_FRAME_INTERVAL 6
-#define CAT_A_SEED_OFFSET 101u
-#define CAT_B_SEED_OFFSET 202u
 #define SHOT_WARMUP_STEPS 400
 #define SHOT_PATH "export/shot.png"
-#define GRAB_RADIUS 20.0f
+#define GRAB_RADIUS 22.0f
+#define ITEM_GRAB 18.0f
 #define DRAG_CLICK_DIST 6.0f
 #define PET_REWARD 0.7f
+#define MAX_ITEMS 24
+#define BOWL_REFILL 3.0f
+
+#define MIN_AWAKE 8.0f
+#define NAP_DURATION 5.0f
 
 static uint32_t nextSeed(void)
 {
@@ -29,33 +33,51 @@ static CatView viewAt(const CatBody *body)
     return (CatView){ (float)body->x, (float)body->y, false, EMOTION_CONTENT, 0.0f, 0, false };
 }
 
-static void updateSleep(CatView *view, const CatBody *body,
-                        float *awakeTimer, float *napTimer, float dt)
+static int resetRoom(RoomItem *items)
+{
+    items[0] = (RoomItem){ ITEM_RUG, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, false, 0.0f };
+    items[1] = (RoomItem){ ITEM_BOWL, WORLD_WIDTH - 8, 9, true, 0.0f };
+    items[2] = (RoomItem){ ITEM_BED, 7, WORLD_HEIGHT - 8, false, 0.0f };
+    items[3] = (RoomItem){ ITEM_PLANT, WORLD_WIDTH - 6, WORLD_HEIGHT - 6, false, 0.0f };
+    return 4;
+}
+
+static void stampItems(World *world, const RoomItem *items, int count)
+{
+    WorldClearInterior(world);
+    for (int i = 0; i < count; i++)
+    {
+        int x = items[i].x, y = items[i].y;
+        if (x <= 0 || y <= 0 || x >= WORLD_WIDTH - 1 || y >= WORLD_HEIGHT - 1) continue;
+        if (items[i].type == ITEM_PLANT || items[i].type == ITEM_POST)
+            world->tiles[y][x] = TILE_OBSTACLE;
+        else if (items[i].type == ITEM_BOWL && items[i].hasFood)
+            world->tiles[y][x] = TILE_FOOD;
+    }
+}
+
+static void refillBowls(RoomItem *items, int count, float dt)
+{
+    for (int i = 0; i < count; i++)
+        if (items[i].type == ITEM_BOWL && !items[i].hasFood)
+        {
+            items[i].refill -= dt;
+            if (items[i].refill <= 0.0f) items[i].hasFood = true;
+        }
+}
+
+static void updateSleep(CatView *view, const CatBody *body, float *awakeTimer, float *napTimer, float dt)
 {
     if (view->asleep)
     {
         *napTimer += dt;
-        if (*napTimer > NAP_DURATION || body->hunger > WAKE_HUNGER)
-        {
-            view->asleep = false;
-            *awakeTimer = 0.0f;
-        }
+        if (*napTimer > NAP_DURATION || body->hunger > WAKE_HUNGER) { view->asleep = false; *awakeTimer = 0.0f; }
     }
     else
     {
         *awakeTimer += dt;
-        if (body->hunger < SLEEP_HUNGER && *awakeTimer > MIN_AWAKE)
-        {
-            view->asleep = true;
-            *napTimer = 0.0f;
-        }
+        if (body->hunger < SLEEP_HUNGER && *awakeTimer > MIN_AWAKE) { view->asleep = true; *napTimer = 0.0f; }
     }
-}
-
-static void wake(CatView *view, float *awakeTimer)
-{
-    view->asleep = false;
-    *awakeTimer = 0.0f;
 }
 
 static void restTick(CatBody *body)
@@ -64,48 +86,72 @@ static void restTick(CatBody *body)
     if (body->hunger > 1.0f) body->hunger = 1.0f;
 }
 
+static float catCenterX(const CatView *view) { return GRID_ORIGIN_X + view->x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f; }
+static float catCenterY(const CatView *view) { return GRID_ORIGIN_Y + view->y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f; }
+
+static int itemUnderMouse(const RoomItem *items, int count, Vector2 mouse)
+{
+    for (int i = count - 1; i >= 0; i--)
+    {
+        float cx = GRID_ORIGIN_X + items[i].x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+        float cy = GRID_ORIGIN_Y + items[i].y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+        float dx = mouse.x - cx, dy = mouse.y - cy;
+        if (dx * dx + dy * dy < ITEM_GRAB * ITEM_GRAB) return i;
+    }
+    return -1;
+}
+
+static bool mouseToTile(Vector2 mouse, int *tx, int *ty)
+{
+    int x = (int)((mouse.x - GRID_ORIGIN_X) / WORLD_TILE_PX);
+    int y = (int)((mouse.y - GRID_ORIGIN_Y) / WORLD_TILE_PX);
+    if (x < 1 || x >= WORLD_WIDTH - 1 || y < 1 || y >= WORLD_HEIGHT - 1) return false;
+    *tx = x; *ty = y;
+    return true;
+}
+
 int RunShot(void)
 {
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
     SetTargetFPS(TARGET_FPS);
 
-    CatAgent *agentA = malloc(sizeof(CatAgent));
-    CatAgent *agentB = malloc(sizeof(CatAgent));
+    CatAgent *agent = malloc(sizeof(CatAgent));
     World *world = malloc(sizeof(World));
-    if (!agentA || !agentB || !world) { CloseWindow(); free(agentA); free(agentB); free(world); return 1; }
+    if (!agent || !world) { CloseWindow(); free(agent); free(world); return 1; }
 
-    AgentInit(agentA, 4242u);
-    AgentInit(agentB, 7777u);
-    WorldInit(world, 777u);
-    PixelCat catA = PixelCatCreate(CatGenomeRandom(20260615u));
-    PixelCat catB = PixelCatCreate(CatGenomeRandom(31415926u));
+    AgentInit(agent, 4242u);
+    WorldInitRoom(world, 777u);
+    PixelCat cat = PixelCatCreate(CatGenomeRandom(20260615u));
 
-    CatBody bodyA, bodyB;
-    CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
-    CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
+    CatBody body;
+    CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
 
-    float voiceA = 0.0f, voiceB = 0.0f;
+    RoomItem items[MAX_ITEMS];
+    int itemCount = resetRoom(items);
+
+    float voice = 0.0f;
     for (int step = 0; step < SHOT_WARMUP_STEPS; step++)
     {
-        float nva = 0.0f, nvb = 0.0f;
-        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
-        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
-        voiceA = nva; voiceB = nvb;
+        stampItems(world, items, itemCount);
+        int before = body.foodEaten;
+        AgentAct(agent, world, &body, -1, -1, 0.0f, true, NULL, &voice);
+        if (body.foodEaten > before)
+            for (int i = 0; i < itemCount; i++)
+                if (items[i].type == ITEM_BOWL && items[i].x == body.x && items[i].y == body.y)
+                    { items[i].hasFood = false; items[i].refill = BOWL_REFILL; }
+        refillBowls(items, itemCount, 0.1f);
     }
 
-    CatView viewA = viewAt(&bodyA);
-    CatView viewB = viewAt(&bodyB);
-    MoodUpdate(&viewA, agentA, world, &bodyA, bodyB.x, bodyB.y, 0.0f);
-    MoodUpdate(&viewB, agentB, world, &bodyB, bodyA.x, bodyA.y, 0.0f);
+    CatView view = viewAt(&body);
+    MoodUpdate(&view, agent, world, &body, -1, -1, 0.0f);
+    stampItems(world, items, itemCount);
 
     for (int frame = 0; frame < 8; frame++)
-        RenderScene(agentA, &bodyA, &viewA, &catA, voiceA,
-                    agentB, &bodyB, &viewB, &catB, voiceB, world, false, GetTime());
+        RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, -1, false, GetTime());
     TakeScreenshot(SHOT_PATH);
 
-    PixelCatUnload(&catA);
-    PixelCatUnload(&catB);
-    free(agentA); free(agentB); free(world);
+    PixelCatUnload(&cat);
+    free(agent); free(world);
     CloseWindow();
     return 0;
 }
@@ -116,34 +162,28 @@ int RunGame(void)
     SetTargetFPS(TARGET_FPS);
     SetRandomSeed((unsigned int)(GetTime() * 1000.0) + 1u);
 
-    CatAgent *agentA = malloc(sizeof(CatAgent));
-    CatAgent *agentB = malloc(sizeof(CatAgent));
+    CatAgent *agent = malloc(sizeof(CatAgent));
     World *world = malloc(sizeof(World));
-    if (!agentA || !agentB || !world) { CloseWindow(); return 1; }
+    if (!agent || !world) { CloseWindow(); return 1; }
 
-    uint32_t seed = nextSeed();
-    AgentInit(agentA, seed + CAT_A_SEED_OFFSET);
-    AgentInit(agentB, seed + CAT_B_SEED_OFFSET);
-    WorldInit(world, nextSeed());
+    AgentInit(agent, nextSeed());
+    WorldInitRoom(world, nextSeed());
+    PixelCat cat = PixelCatCreate(CatGenomeRandom(nextSeed()));
 
-    PixelCat catA = PixelCatCreate(CatGenomeRandom(nextSeed()));
-    PixelCat catB = PixelCatCreate(CatGenomeRandom(nextSeed()));
+    CatBody body;
+    CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+    CatView view = viewAt(&body);
 
-    CatBody bodyA, bodyB;
-    CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
-    CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
+    RoomItem items[MAX_ITEMS];
+    int itemCount = resetRoom(items);
 
-    float voiceA = 0.0f, voiceB = 0.0f;
+    float voice = 0.0f;
     int frame = 0;
     bool showBrain = false;
-    int dragging = -1;
+    int dragCat = -1, dragItem = -1;
     bool dragMoved = false;
     Vector2 pressPos = { 0 };
-    float awakeTimerA = 0.0f, napTimerA = 0.0f;
-    float awakeTimerB = 0.0f, napTimerB = 0.0f;
-
-    CatView viewA = viewAt(&bodyA);
-    CatView viewB = viewAt(&bodyB);
+    float awakeTimer = 0.0f, napTimer = 0.0f;
 
     while (!WindowShouldClose())
     {
@@ -151,103 +191,112 @@ int RunGame(void)
 
         if (IsKeyPressed(KEY_R))
         {
-            AgentInit(agentA, nextSeed());
-            AgentInit(agentB, nextSeed());
-            WorldInit(world, nextSeed());
-            CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
-            CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
-            viewA = viewAt(&bodyA);
-            viewB = viewAt(&bodyB);
-            voiceA = 0.0f; voiceB = 0.0f;
-            awakeTimerA = 0.0f; napTimerA = 0.0f;
-            awakeTimerB = 0.0f; napTimerB = 0.0f;
-            dragging = -1;
+            AgentInit(agent, nextSeed());
+            WorldInitRoom(world, nextSeed());
+            CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+            view = viewAt(&body);
+            itemCount = resetRoom(items);
+            voice = 0.0f; awakeTimer = 0.0f; napTimer = 0.0f;
+            dragCat = -1; dragItem = -1;
         }
         if (IsKeyPressed(KEY_B)) showBrain = !showBrain;
 
-        Vector2 mouse = GetMousePosition();
-        float ax = GRID_ORIGIN_X + viewA.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
-        float ay = GRID_ORIGIN_Y + viewA.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
-        float bx = GRID_ORIGIN_X + viewB.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
-        float by = GRID_ORIGIN_Y + viewB.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
-        float distA = (mouse.x - ax) * (mouse.x - ax) + (mouse.y - ay) * (mouse.y - ay);
-        float distB = (mouse.x - bx) * (mouse.x - bx) + (mouse.y - by) * (mouse.y - by);
-        int hovered = -1;
-        if (distA < GRAB_RADIUS * GRAB_RADIUS && distA <= distB) hovered = 0;
-        else if (distB < GRAB_RADIUS * GRAB_RADIUS) hovered = 1;
-        SetMouseCursor((hovered >= 0 || dragging >= 0) ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
+        stampItems(world, items, itemCount);
 
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hovered >= 0)
+        Vector2 mouse = GetMousePosition();
+        float dxCat = mouse.x - catCenterX(&view), dyCat = mouse.y - catCenterY(&view);
+        bool overCat = (dxCat * dxCat + dyCat * dyCat) < GRAB_RADIUS * GRAB_RADIUS;
+        int overItem = (dragCat < 0 && !overCat) ? itemUnderMouse(items, itemCount, mouse) : -1;
+        SetMouseCursor((overCat || overItem >= 0 || dragCat >= 0 || dragItem >= 0)
+                       ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
-            dragging = hovered;
-            dragMoved = false;
-            pressPos = mouse;
-            wake(hovered == 0 ? &viewA : &viewB, hovered == 0 ? &awakeTimerA : &awakeTimerB);
+            if (overCat)
+            {
+                dragCat = 0; dragMoved = false; pressPos = mouse;
+                view.asleep = false; awakeTimer = 0.0f;
+            }
+            else if (overItem >= 0)
+            {
+                dragItem = overItem;
+            }
+            else
+            {
+                int pick = PalettePick(mouse);
+                if (pick >= 0 && itemCount < MAX_ITEMS)
+                {
+                    items[itemCount] = (RoomItem){ (ItemType)pick, WORLD_WIDTH / 2, WORLD_HEIGHT / 2,
+                                                   pick == ITEM_BOWL, 0.0f };
+                    dragItem = itemCount;
+                    itemCount++;
+                }
+            }
         }
-        if (dragging >= 0)
+
+        if (dragCat == 0)
         {
             float mdx = mouse.x - pressPos.x, mdy = mouse.y - pressPos.y;
             if (mdx * mdx + mdy * mdy > DRAG_CLICK_DIST * DRAG_CLICK_DIST) dragMoved = true;
-
-            int tx = (int)((mouse.x - GRID_ORIGIN_X) / WORLD_TILE_PX);
-            int ty = (int)((mouse.y - GRID_ORIGIN_Y) / WORLD_TILE_PX);
-            if (tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT &&
-                world->tiles[ty][tx] != TILE_OBSTACLE)
+            int tx, ty;
+            if (mouseToTile(mouse, &tx, &ty) && world->tiles[ty][tx] != TILE_OBSTACLE)
             {
-                CatBody *body = (dragging == 0) ? &bodyA : &bodyB;
-                CatView *view = (dragging == 0) ? &viewA : &viewB;
-                body->x = tx;
-                body->y = ty;
-                view->x = (mouse.x - GRID_ORIGIN_X - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
-                view->y = (mouse.y - GRID_ORIGIN_Y - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
+                body.x = tx; body.y = ty;
+                view.x = (mouse.x - GRID_ORIGIN_X - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
+                view.y = (mouse.y - GRID_ORIGIN_Y - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
             }
         }
+        else if (dragItem >= 0)
+        {
+            int tx, ty;
+            if (mouseToTile(mouse, &tx, &ty)) { items[dragItem].x = tx; items[dragItem].y = ty; }
+        }
+
         if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
         {
-            if (dragging >= 0 && !dragMoved)
+            if (dragCat == 0 && !dragMoved)
             {
-                CatView *view = (dragging == 0) ? &viewA : &viewB;
-                CatAgent *agent = (dragging == 0) ? agentA : agentB;
-                MoodPet(view);
-                HeartsSpawn(GRID_ORIGIN_X + view->x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f,
-                            GRID_ORIGIN_Y + view->y * WORLD_TILE_PX);
+                MoodPet(&view);
+                HeartsSpawn(catCenterX(&view), catCenterY(&view) - 10.0f);
                 NetworkApplyReward(&agent->net, PET_REWARD);
             }
-            dragging = -1;
+            dragCat = -1; dragItem = -1;
         }
 
         if (++frame >= SIM_FRAME_INTERVAL)
         {
             frame = 0;
-            float nva = voiceA, nvb = voiceB;
-            if (dragging != 0)
+            if (dragCat == 0)
             {
-                if (viewA.asleep) { AgentRest(agentA); restTick(&bodyA); }
-                else AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
+                /* carried: cat rests in hand */
             }
-            if (dragging != 1)
+            else if (view.asleep)
             {
-                if (viewB.asleep) { AgentRest(agentB); restTick(&bodyB); }
-                else AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
+                AgentRest(agent);
+                restTick(&body);
             }
-            voiceA = nva; voiceB = nvb;
+            else
+            {
+                int before = body.foodEaten;
+                AgentAct(agent, world, &body, -1, -1, 0.0f, true, NULL, &voice);
+                if (body.foodEaten > before)
+                    for (int i = 0; i < itemCount; i++)
+                        if (items[i].type == ITEM_BOWL && items[i].x == body.x && items[i].y == body.y)
+                            { items[i].hasFood = false; items[i].refill = BOWL_REFILL; }
+            }
         }
 
-        if (dragging != 0) ViewUpdate(&viewA, &bodyA);
-        if (dragging != 1) ViewUpdate(&viewB, &bodyB);
-        MoodUpdate(&viewA, agentA, world, &bodyA, bodyB.x, bodyB.y, dt);
-        MoodUpdate(&viewB, agentB, world, &bodyB, bodyA.x, bodyA.y, dt);
-        updateSleep(&viewA, &bodyA, &awakeTimerA, &napTimerA, dt);
-        updateSleep(&viewB, &bodyB, &awakeTimerB, &napTimerB, dt);
+        refillBowls(items, itemCount, dt);
+        if (dragCat != 0) ViewUpdate(&view, &body);
+        MoodUpdate(&view, agent, world, &body, -1, -1, dt);
+        updateSleep(&view, &body, &awakeTimer, &napTimer, dt);
         HeartsUpdate(dt);
 
-        RenderScene(agentA, &bodyA, &viewA, &catA, voiceA,
-                    agentB, &bodyB, &viewB, &catB, voiceB, world, showBrain, GetTime());
+        RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, dragItem, showBrain, GetTime());
     }
 
-    PixelCatUnload(&catA);
-    PixelCatUnload(&catB);
-    free(agentA); free(agentB); free(world);
+    PixelCatUnload(&cat);
+    free(agent); free(world);
     CloseWindow();
     return 0;
 }
