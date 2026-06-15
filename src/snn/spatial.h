@@ -5,7 +5,8 @@
 #include <stdbool.h>
 
 #define PLACE_CELLS (WORLD_WIDTH * WORLD_HEIGHT)
-#define SPATIAL_DRIVE_COUNT 4
+#define SPATIAL_DRIVE_COUNT 5
+#define SPATIAL_PAIN_INDEX 4
 
 typedef struct {
     float weight[SPATIAL_DRIVE_COUNT][PLACE_CELLS];

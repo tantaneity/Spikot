@@ -13,7 +13,7 @@
 #include <math.h>
 
 #define SAVE_PATH "spikot.save"
-#define SAVE_MAGIC 0x53504B39u
+#define SAVE_MAGIC 0x53504B3Au
 
 #define SIM_FRAME_INTERVAL 6
 #define SHOT_WARMUP_STEPS 400

@@ -93,7 +93,8 @@ static bool memoryGradient(const CatAgent *agent, const World *world, const CatB
                            int driveIndex, int *outDx, int *outDy)
 {
     static const int dirs[4][2] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
-    float best = SpatialValue(&agent->spatial, driveIndex, body->x, body->y);
+    float best = SpatialValue(&agent->spatial, driveIndex, body->x, body->y)
+               - DANGER_WEIGHT * SpatialValue(&agent->spatial, SPATIAL_PAIN_INDEX, body->x, body->y);
     int bdx = 0, bdy = 0;
     bool found = false;
 
@@ -102,7 +103,8 @@ static bool memoryGradient(const CatAgent *agent, const World *world, const CatB
         int nx = body->x + dirs[k][0], ny = body->y + dirs[k][1];
         if (nx < 0 || nx >= WORLD_WIDTH || ny < 0 || ny >= WORLD_HEIGHT) continue;
         if (world->tiles[ny][nx] == TILE_OBSTACLE) continue;
-        float v = SpatialValue(&agent->spatial, driveIndex, nx, ny);
+        float v = SpatialValue(&agent->spatial, driveIndex, nx, ny)
+                - DANGER_WEIGHT * SpatialValue(&agent->spatial, SPATIAL_PAIN_INDEX, nx, ny);
         if (v > best + 1e-4f) { best = v; bdx = dirs[k][0]; bdy = dirs[k][1]; found = true; }
     }
 
@@ -363,8 +365,11 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
     }
     else if (spatialIndex >= 0 && items)
     {
-        if (seeItemDir(items, itemCount, driveTargetType(drive), body->x, body->y, &tDx, &tDy)) haveTarget = true;
-        else haveTarget = memoryGradient(agent, world, body, spatialIndex, &tDx, &tDy);
+        /* ponytail: no innate "that box is a toilet" - litter is found by learning, not sight */
+        if (drive != DRIVE_BLADDER && seeItemDir(items, itemCount, driveTargetType(drive), body->x, body->y, &tDx, &tDy))
+            haveTarget = true;
+        else
+            haveTarget = memoryGradient(agent, world, body, spatialIndex, &tDx, &tDy);
     }
 
     if (drive == DRIVE_PLAY)
@@ -399,6 +404,9 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
     CatAction action = sampleAction(agent->actionSpikes, &agent->rng, exploreBase);
     float reward = WorldStepCat(world, body, action, otherX, otherY);
     bool rewarded = reward >= REWARD_FOOD;
+
+    if (items && reward <= REWARD_OBSTACLE)
+        SpatialLearn(&agent->spatial, SPATIAL_PAIN_INDEX, prevX, prevY, prevX, prevY, 1.0f, true);
 
     if (items && spatialIndex >= 0)
     {
