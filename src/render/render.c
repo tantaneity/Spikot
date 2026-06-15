@@ -180,6 +180,15 @@ static void drawMeow(float cx, float topY)
     DrawRectangle((int)cx, (int)topY - 19, 2, 9, ink);
 }
 
+static void drawZzz(float cx, float topY, double time)
+{
+    Color ink = (Color){ 210, 220, 245, 230 };
+    float wave = sinf((float)time * 2.0f) * 2.0f;
+    DrawText("z", (int)(cx + 2 + wave), (int)(topY - 8), 12, ink);
+    DrawText("z", (int)(cx + 8 + wave), (int)(topY - 16), 16, ink);
+    DrawText("z", (int)(cx + 15 + wave), (int)(topY - 26), 20, ink);
+}
+
 static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *body, float voice, double time)
 {
     float drawSize = CAT_CANVAS_SIZE * CAT_DRAW_SCALE;
@@ -187,20 +196,24 @@ static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *bod
     float centerY = GRID_ORIGIN_Y + view->y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
 
     float distance = fabsf(body->x - view->x) + fabsf(body->y - view->y);
-    bool walking = distance > 0.06f;
+    bool walking = !view->asleep && distance > 0.06f;
     float t = (float)time;
-    float bob = sinf(t * BOB_SPEED + view->x * 1.7f) * (walking ? BOB_AMP * 2.2f : BOB_AMP);
+    float bob = view->asleep ? sinf(t * 2.0f) * 0.8f
+                             : sinf(t * BOB_SPEED + view->x * 1.7f) * (walking ? BOB_AMP * 2.2f : BOB_AMP);
     float tilt = walking ? sinf(t * WALK_FREQ) * WALK_TILT : 0.0f;
 
-    DrawEllipse((int)centerX, (int)(centerY + 8.0f), 9.0f, 3.5f, SHADOW_COLOR);
+    DrawEllipse((int)centerX, (int)(centerY + 8.0f), view->asleep ? 11.0f : 9.0f, 3.5f, SHADOW_COLOR);
 
-    Texture2D texture = cat->textures[view->mood];
+    CatEmotion face = view->asleep ? EMOTION_HAPPY : view->mood;
+    Texture2D texture = cat->textures[face];
     Rectangle source = { 0.0f, 0.0f, (view->faceLeft ? -1.0f : 1.0f) * texture.width, (float)texture.height };
-    Rectangle dest = { centerX, centerY - 3.0f + bob, drawSize, drawSize };
+    float offsetY = view->asleep ? 4.0f : -3.0f;
+    Rectangle dest = { centerX, centerY + offsetY + bob, drawSize, drawSize };
     Vector2 origin = { drawSize * 0.5f, drawSize * 0.5f };
     DrawTexturePro(texture, source, dest, origin, tilt, WHITE);
 
-    if (voice > MEOW_THRESHOLD) drawMeow(centerX, centerY - drawSize * 0.5f + bob);
+    if (view->asleep) drawZzz(centerX, centerY - drawSize * 0.4f, time);
+    else if (voice > MEOW_THRESHOLD) drawMeow(centerX, centerY - drawSize * 0.5f + bob);
 }
 
 static void drawVoiceBar(int x, int y, int width, float level, Color tint)

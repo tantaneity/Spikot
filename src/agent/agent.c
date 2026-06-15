@@ -142,3 +142,13 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
     if (outVoice) *outVoice = agent->lastVoice;
     return action;
 }
+
+void AgentRest(CatAgent *agent)
+{
+    for (int substep = 0; substep < BRAIN_SUBSTEPS; substep++)
+        NetworkStep(&agent->net, NULL);
+
+    NetworkApplyReward(&agent->net, SLEEP_CONSOLIDATE);
+    agent->lastReward = 0.0f;
+    agent->lastVoice = 0.0f;
+}

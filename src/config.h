@@ -67,4 +67,9 @@
 #define BRAIN_EXPLORE_BASE 1.0f
 #define LEARNING_BASELINE_RATE 0.01f
 
+#define SLEEP_HUNGER 0.25f
+#define WAKE_HUNGER 0.55f
+#define SLEEP_DELAY 3.0f
+#define SLEEP_CONSOLIDATE 0.03f
+
 #endif

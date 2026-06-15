@@ -26,7 +26,36 @@ static uint32_t nextSeed(void)
 
 static CatView viewAt(const CatBody *body)
 {
-    return (CatView){ (float)body->x, (float)body->y, false, EMOTION_CONTENT, 0.0f, 0 };
+    return (CatView){ (float)body->x, (float)body->y, false, EMOTION_CONTENT, 0.0f, 0, false };
+}
+
+static void updateSleep(CatView *view, const CatBody *body, float *restTimer, float dt)
+{
+    if (view->asleep)
+    {
+        if (body->hunger > WAKE_HUNGER)
+        {
+            view->asleep = false;
+            *restTimer = 0.0f;
+        }
+        return;
+    }
+
+    if (body->hunger < SLEEP_HUNGER)
+    {
+        *restTimer += dt;
+        if (*restTimer > SLEEP_DELAY) view->asleep = true;
+    }
+    else
+    {
+        *restTimer = 0.0f;
+    }
+}
+
+static void wake(CatView *view, float *restTimer)
+{
+    view->asleep = false;
+    *restTimer = 0.0f;
 }
 
 int RunShot(void)
@@ -104,6 +133,7 @@ int RunGame(void)
     int dragging = -1;
     bool dragMoved = false;
     Vector2 pressPos = { 0 };
+    float restTimerA = 0.0f, restTimerB = 0.0f;
 
     CatView viewA = viewAt(&bodyA);
     CatView viewB = viewAt(&bodyB);
@@ -122,6 +152,7 @@ int RunGame(void)
             viewA = viewAt(&bodyA);
             viewB = viewAt(&bodyB);
             voiceA = 0.0f; voiceB = 0.0f;
+            restTimerA = 0.0f; restTimerB = 0.0f;
             dragging = -1;
         }
         if (IsKeyPressed(KEY_B)) showBrain = !showBrain;
@@ -143,6 +174,7 @@ int RunGame(void)
             dragging = hovered;
             dragMoved = false;
             pressPos = mouse;
+            wake(hovered == 0 ? &viewA : &viewB, hovered == 0 ? &restTimerA : &restTimerB);
         }
         if (dragging >= 0)
         {
@@ -180,8 +212,16 @@ int RunGame(void)
         {
             frame = 0;
             float nva = voiceA, nvb = voiceB;
-            if (dragging != 0) AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
-            if (dragging != 1) AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
+            if (dragging != 0)
+            {
+                if (viewA.asleep) AgentRest(agentA);
+                else AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
+            }
+            if (dragging != 1)
+            {
+                if (viewB.asleep) AgentRest(agentB);
+                else AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
+            }
             voiceA = nva; voiceB = nvb;
         }
 
@@ -189,6 +229,8 @@ int RunGame(void)
         if (dragging != 1) ViewUpdate(&viewB, &bodyB);
         MoodUpdate(&viewA, agentA, world, &bodyA, bodyB.x, bodyB.y, dt);
         MoodUpdate(&viewB, agentB, world, &bodyB, bodyA.x, bodyA.y, dt);
+        updateSleep(&viewA, &bodyA, &restTimerA, dt);
+        updateSleep(&viewB, &bodyB, &restTimerB, dt);
         HeartsUpdate(dt);
 
         RenderScene(agentA, &bodyA, &viewA, &catA, voiceA,
