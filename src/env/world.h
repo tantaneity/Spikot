@@ -26,6 +26,9 @@ typedef struct {
     float hunger;
     float fatigue;
     float scratchUrge;
+    float bladder;
+    float boredom;
+    float grime;
     int foodEaten;
 } CatBody;
 
@@ -35,6 +38,7 @@ typedef enum {
     ITEM_PLANT,
     ITEM_POST,
     ITEM_RUG,
+    ITEM_LITTER,
     ITEM_TYPE_COUNT
 } ItemType;
 

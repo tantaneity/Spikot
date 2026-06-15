@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 #define SAVE_PATH "spikot.save"
-#define SAVE_MAGIC 0x53504B36u
+#define SAVE_MAGIC 0x53504B37u
 
 #define SIM_FRAME_INTERVAL 6
 #define SHOT_WARMUP_STEPS 400
@@ -46,7 +46,8 @@ static MaterialKind itemMaterial(ItemType type)
         case ITEM_BED:
         case ITEM_RUG: return MAT_SOFT;
         case ITEM_POST:
-        case ITEM_PLANT: return MAT_HARD;
+        case ITEM_PLANT:
+        case ITEM_LITTER: return MAT_HARD;
         default: return MAT_WET;
     }
 }
@@ -83,7 +84,8 @@ static int resetRoom(RoomItem *items)
     items[1] = (RoomItem){ ITEM_BOWL, WORLD_WIDTH - 8, 9, true, 0.0f };
     items[2] = (RoomItem){ ITEM_BED, 7, WORLD_HEIGHT - 8, false, 0.0f };
     items[3] = (RoomItem){ ITEM_PLANT, WORLD_WIDTH - 6, WORLD_HEIGHT - 6, false, 0.0f };
-    return 4;
+    items[4] = (RoomItem){ ITEM_LITTER, 8, 9, false, 0.0f };
+    return 5;
 }
 
 static void stampItems(World *world, const RoomItem *items, int count)
@@ -431,6 +433,12 @@ int RunGame(void)
                 if (body.fatigue > 1.0f) body.fatigue = 1.0f;
                 body.scratchUrge += SCRATCH_RATE;
                 if (body.scratchUrge > 1.0f) body.scratchUrge = 1.0f;
+                body.bladder += BLADDER_RATE;
+                if (body.bladder > 1.0f) body.bladder = 1.0f;
+                body.boredom += BOREDOM_RATE;
+                if (body.boredom > 1.0f) body.boredom = 1.0f;
+                body.grime += GRIME_RATE;
+                if (body.grime > 1.0f) body.grime = 1.0f;
 
                 if (agent->activeDrive == DRIVE_SCRATCH && adjacentToItem(items, itemCount, ITEM_POST, body.x, body.y))
                 {
@@ -439,6 +447,29 @@ int RunGame(void)
                     view.moodHold = 1.2f;
                     ParticleDust(catCenterX(&view), catCenterY(&view));
                     AgentReinforcePlace(agent, DRIVE_SCRATCH, body.x, body.y);
+                }
+
+                if (agent->activeDrive == DRIVE_BLADDER && onItemTile(items, itemCount, ITEM_LITTER, body.x, body.y))
+                {
+                    body.bladder = 0.0f;
+                    body.grime += GRIME_ON_EVENT;
+                    if (body.grime > 1.0f) body.grime = 1.0f;
+                    ParticleDust(catCenterX(&view), catCenterY(&view));
+                    AgentReinforcePlace(agent, DRIVE_BLADDER, body.x, body.y);
+                    AgentNeuromodPulse(agent, 0.0f, 0.3f, 0.0f);
+                }
+
+                if (agent->activeDrive == DRIVE_PLAY)
+                {
+                    body.boredom -= BOREDOM_RELIEF;
+                    if (body.boredom < 0.0f) body.boredom = 0.0f;
+                }
+
+                if (agent->activeDrive == DRIVE_GROOM)
+                {
+                    body.grime -= GRIME_RELIEF;
+                    if (body.grime < 0.0f) body.grime = 0.0f;
+                    AgentNeuromodPulse(agent, 0.0f, 0.05f, 0.0f);
                 }
 
                 bool atBed = onItemTile(items, itemCount, ITEM_BED, body.x, body.y);
@@ -459,6 +490,8 @@ int RunGame(void)
                 if (body.foodEaten > before)
                 {
                     ParticleCrumbs(cx, cy);
+                    body.grime += GRIME_ON_EVENT;
+                    if (body.grime > 1.0f) body.grime = 1.0f;
                     for (int i = 0; i < itemCount; i++)
                         if (items[i].type == ITEM_BOWL && items[i].x == body.x && items[i].y == body.y)
                             { items[i].hasFood = false; items[i].refill = BOWL_REFILL; }

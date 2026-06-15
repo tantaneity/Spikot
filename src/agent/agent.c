@@ -42,6 +42,7 @@ static float driveStrength(DriveKind drive)
         case DRIVE_CURIOSITY: return CURIOSITY_STRENGTH;
         case DRIVE_FATIGUE: return FATIGUE_STRENGTH;
         case DRIVE_SCRATCH: return SCRATCH_STRENGTH;
+        case DRIVE_BLADDER: return BLADDER_STRENGTH;
         default: return INSTINCT_STRENGTH;
     }
 }
@@ -52,6 +53,7 @@ static ItemType driveTargetType(DriveKind drive)
     {
         case DRIVE_FATIGUE: return ITEM_BED;
         case DRIVE_SCRATCH: return ITEM_POST;
+        case DRIVE_BLADDER: return ITEM_LITTER;
         default: return ITEM_BOWL;
     }
 }
@@ -63,6 +65,7 @@ static int driveSpatialIndex(DriveKind drive)
         case DRIVE_HUNGER: return 0;
         case DRIVE_FATIGUE: return 1;
         case DRIVE_SCRATCH: return 2;
+        case DRIVE_BLADDER: return 3;
         default: return -1;
     }
 }
@@ -146,6 +149,15 @@ static DriveKind dominantDrive(const CatBody *body, CatSenses senses, float hung
 
     float scratchU = (body->scratchUrge - DRIVE_SCRATCH_GATE) / (1.0f - DRIVE_SCRATCH_GATE);
     if (scratchU > bestU) { best = DRIVE_SCRATCH; bestU = scratchU; }
+
+    float bladderU = (body->bladder - DRIVE_BLADDER_GATE) / (1.0f - DRIVE_BLADDER_GATE);
+    if (bladderU > bestU) { best = DRIVE_BLADDER; bestU = bladderU; }
+
+    float playU = 0.85f * (body->boredom - DRIVE_PLAY_GATE) / (1.0f - DRIVE_PLAY_GATE);
+    if (playU > bestU) { best = DRIVE_PLAY; bestU = playU; }
+
+    float groomU = 0.85f * (body->grime - DRIVE_GROOM_GATE) / (1.0f - DRIVE_GROOM_GATE);
+    if (groomU > bestU) { best = DRIVE_GROOM; bestU = groomU; }
 
     *outUrgency = bestU;
     return best;
@@ -338,7 +350,18 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
         else haveTarget = memoryGradient(agent, world, body, spatialIndex, &tDx, &tDy);
     }
 
-    if (drive != DRIVE_NONE)
+    if (drive == DRIVE_PLAY)
+    {
+        static const int zoomDirs[4][2] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+        int pick = (int)(nextRandom(&agent->rng) % 4u);
+        agent->actionSpikes[towardAction(zoomDirs[pick][0], zoomDirs[pick][1])] += (int)PLAY_STRENGTH;
+        agent->mods.noradrenaline = clampf(agent->mods.noradrenaline + PLAY_AROUSAL, 0.0f, 1.0f);
+    }
+    else if (drive == DRIVE_GROOM)
+    {
+        agent->actionSpikes[ACTION_STAY] += (int)GROOM_STRENGTH;
+    }
+    else if (drive != DRIVE_NONE)
     {
         if (haveTarget)
         {

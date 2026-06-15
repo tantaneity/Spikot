@@ -271,6 +271,13 @@ static void drawItemShape(ItemType type, float cx, float cy, bool hasFood, doubl
             DrawRectangle((int)cx - 4, (int)cy - 12, 8, 22, (Color){ 206, 184, 138, 255 });
             DrawRectangle((int)cx - 4, (int)cy - 12, 8, 3, (Color){ 170, 146, 104, 255 });
             break;
+        case ITEM_LITTER:
+            DrawRectangle((int)cx - 15, (int)cy - 4, 30, 14, (Color){ 110, 104, 118, 255 });
+            DrawRectangle((int)cx - 13, (int)cy - 6, 26, 11, (Color){ 198, 188, 168, 255 });
+            DrawCircle((int)cx - 6, (int)cy - 1, 1.6f, (Color){ 168, 158, 138, 255 });
+            DrawCircle((int)cx + 3, (int)cy - 2, 1.6f, (Color){ 180, 170, 150, 255 });
+            DrawCircle((int)cx + 8, (int)cy + 1, 1.4f, (Color){ 158, 148, 130, 255 });
+            break;
         case ITEM_BOWL:
         default:
         {
@@ -411,6 +418,7 @@ static const char *itemName(ItemType type)
         case ITEM_BED: return "bed";
         case ITEM_PLANT: return "plant";
         case ITEM_POST: return "post";
+        case ITEM_LITTER: return "litter";
         default: return "rug";
     }
 }
@@ -489,6 +497,9 @@ static const char *activityName(const CatAgent *agent, const CatView *view)
         case DRIVE_CURIOSITY: return "exploring";
         case DRIVE_FATIGUE: return "to bed";
         case DRIVE_SCRATCH: return "scratching";
+        case DRIVE_BLADDER: return "to the litter";
+        case DRIVE_PLAY: return "zoomies!";
+        case DRIVE_GROOM: return "grooming";
         default: return "wandering";
     }
 }

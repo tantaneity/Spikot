@@ -11,7 +11,10 @@ typedef enum {
     DRIVE_HUNGER,
     DRIVE_CURIOSITY,
     DRIVE_FATIGUE,
-    DRIVE_SCRATCH
+    DRIVE_SCRATCH,
+    DRIVE_BLADDER,
+    DRIVE_PLAY,
+    DRIVE_GROOM
 } DriveKind;
 
 typedef struct {
