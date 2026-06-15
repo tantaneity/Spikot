@@ -18,20 +18,12 @@
 #define EAR_BASE_Y 3.9f
 #define EAR_SPREAD 1.6f
 
-#define WALK_HEAD_CY 5.6f
-#define WALK_HEAD_RX 3.9f
-#define WALK_HEAD_RY 3.0f
-#define WALK_BODY_CY 10.6f
-#define WALK_BODY_RX 4.9f
-#define WALK_BODY_RY 2.7f
-#define WALK_LEG_COUNT 4
-
 #define MARKING_GAIN 0.22f
 
 static const Color NOSE_COLOR = (Color){ 240, 150, 165, 255 };
 static const Color PUPIL_COLOR = (Color){ 22, 22, 30, 255 };
 static const Color GLINT_COLOR = (Color){ 250, 250, 255, 255 };
-static const Color WHISKER_COLOR = (Color){ 226, 226, 230, 220 };
+static const Color OUTLINE_COLOR = (Color){ 28, 24, 42, 255 };
 
 typedef struct {
     float earTipY;
@@ -160,11 +152,24 @@ static void drawFace(Image *canvas, const CatGenome *genome, const EmotionStyle 
 
     ImageDrawPixel(canvas, 7, 8, NOSE_COLOR);
     ImageDrawPixel(canvas, 8, 8, NOSE_COLOR);
+}
 
-    ImageDrawPixel(canvas, 1, 8, WHISKER_COLOR);
-    ImageDrawPixel(canvas, 2, 8, WHISKER_COLOR);
-    ImageDrawPixel(canvas, 13, 8, WHISKER_COLOR);
-    ImageDrawPixel(canvas, 14, 8, WHISKER_COLOR);
+static void addOutline(Image *canvas)
+{
+    Color *data = (Color *)canvas->data;
+    bool filled[CANVAS][CANVAS];
+    for (int y = 0; y < CANVAS; y++)
+        for (int x = 0; x < CANVAS; x++)
+            filled[y][x] = data[y * CANVAS + x].a > 0;
+
+    for (int y = 0; y < CANVAS; y++)
+        for (int x = 0; x < CANVAS; x++)
+        {
+            if (filled[y][x]) continue;
+            bool adj = (x > 0 && filled[y][x - 1]) || (x < CANVAS - 1 && filled[y][x + 1]) ||
+                       (y > 0 && filled[y - 1][x]) || (y < CANVAS - 1 && filled[y + 1][x]);
+            if (adj) ImageDrawPixel(canvas, x, y, OUTLINE_COLOR);
+        }
 }
 
 const char *CatEmotionName(CatEmotion emotion)
@@ -228,6 +233,7 @@ Image CatRenderImage(CatGenome genome, CatEmotion emotion)
         }
     }
 
+    addOutline(&canvas);
     drawFace(&canvas, &genome, &style);
     return canvas;
 }
@@ -235,9 +241,6 @@ Image CatRenderImage(CatGenome genome, CatEmotion emotion)
 static Image CatRenderWalk(CatGenome genome, int frame)
 {
     Image canvas = GenImageColor(CANVAS, CANVAS, BLANK);
-
-    bool tailMask[CANVAS][CANVAS] = { { false } };
-    buildTailMask(tailMask, genome.tailLength);
 
     for (int y = 0; y < CANVAS; y++)
     {
@@ -248,26 +251,17 @@ static Image CatRenderWalk(CatGenome genome, int frame)
             Color color = BLANK;
             bool painted = false;
 
-            float isInnerEar = 0.0f;
-            if (inEars(px, py, genome.earAngle, -1.0f, &isInnerEar))
+            if (inTriangle(px, py, 13.0f, 1.6f, 10.6f, 4.8f, 13.8f, 4.8f))
             {
-                color = (isInnerEar > 0.5f) ? genome.secondary : genome.primary;
+                color = genome.primary;
                 painted = true;
             }
-
-            if (tailMask[y][x])
+            if (inEllipse(px, py, 8.0f, 9.2f, 5.0f, 2.6f))
             {
                 color = furColor(x, y, &genome);
                 painted = true;
             }
-
-            if (inEllipse(px, py, HEAD_CX, WALK_BODY_CY, WALK_BODY_RX, WALK_BODY_RY))
-            {
-                color = furColor(x, y, &genome);
-                painted = true;
-            }
-
-            if (inEllipse(px, py, HEAD_CX, WALK_HEAD_CY, WALK_HEAD_RX, WALK_HEAD_RY))
+            if (inEllipse(px, py, 12.0f, 7.0f, 2.9f, 2.7f))
             {
                 color = genome.primary;
                 painted = true;
@@ -277,17 +271,32 @@ static Image CatRenderWalk(CatGenome genome, int frame)
         }
     }
 
-    const int legX[WALK_LEG_COUNT] = { 4, 6, 9, 11 };
-    for (int i = 0; i < WALK_LEG_COUNT; i++)
+    int tailSteps = 3 + (int)(genome.tailLength * 4.0f);
+    for (int i = 0; i <= tailSteps; i++)
     {
-        bool down = ((i + frame) % 2) == 0;
-        Color leg = furColor(legX[i], 13, &genome);
-        ImageDrawPixel(&canvas, legX[i], 13, leg);
-        if (down) ImageDrawPixel(&canvas, legX[i], 14, leg);
+        float t = (float)i / (float)tailSteps;
+        int tx = (int)(3.5f - t * 2.6f);
+        int ty = (int)(9.0f - t * (3.0f + genome.tailLength * 3.5f));
+        if (tx >= 0 && ty >= 0 && tx < CANVAS && ty < CANVAS)
+            ImageDrawPixel(&canvas, tx, ty, genome.primary);
     }
 
-    EmotionStyle style = styleFor(EMOTION_CONTENT);
-    drawFace(&canvas, &genome, &style);
+    const int legX[4] = { 4, 6, 10, 12 };
+    for (int i = 0; i < 4; i++)
+    {
+        bool down = ((i + frame) % 2) == 0;
+        Color leg = furColor(legX[i], 12, &genome);
+        ImageDrawPixel(&canvas, legX[i], 12, leg);
+        ImageDrawPixel(&canvas, legX[i], down ? 13 : 12, leg);
+    }
+
+    addOutline(&canvas);
+
+    ImageDrawPixel(&canvas, 13, 3, genome.secondary);
+    ImageDrawPixel(&canvas, 13, 7, genome.eyeColor);
+    ImageDrawPixel(&canvas, 13, 6, GLINT_COLOR);
+    ImageDrawPixel(&canvas, 14, 8, NOSE_COLOR);
+
     return canvas;
 }
 
