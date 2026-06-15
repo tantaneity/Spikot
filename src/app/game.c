@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 #define SAVE_PATH "spikot.save"
-#define SAVE_MAGIC 0x53504B33u
+#define SAVE_MAGIC 0x53504B36u
 
 #define SIM_FRAME_INTERVAL 6
 #define SHOT_WARMUP_STEPS 400
@@ -49,6 +49,20 @@ static MaterialKind itemMaterial(ItemType type)
         case ITEM_PLANT: return MAT_HARD;
         default: return MAT_WET;
     }
+}
+
+static bool onItemTile(const RoomItem *items, int count, ItemType type, int bx, int by)
+{
+    for (int i = 0; i < count; i++)
+        if (items[i].type == type && items[i].x == bx && items[i].y == by) return true;
+    return false;
+}
+
+static bool adjacentToItem(const RoomItem *items, int count, ItemType type, int bx, int by)
+{
+    for (int i = 0; i < count; i++)
+        if (items[i].type == type && abs(items[i].x - bx) + abs(items[i].y - by) <= 1) return true;
+    return false;
 }
 
 static int nearestSensibleItem(const RoomItem *items, int count, int bx, int by, int *outDist)
@@ -101,7 +115,7 @@ static void updateSleep(CatView *view, const CatBody *body, float *awakeTimer, f
     if (view->asleep)
     {
         *napTimer += dt;
-        if (*napTimer > NAP_DURATION || body->hunger > WAKE_HUNGER)
+        if (body->fatigue < WAKE_FATIGUE || body->hunger > WAKE_HUNGER)
         {
             view->asleep = false;
             view->stretch = 1.0f;
@@ -111,7 +125,6 @@ static void updateSleep(CatView *view, const CatBody *body, float *awakeTimer, f
     else
     {
         *awakeTimer += dt;
-        if (body->hunger < SLEEP_HUNGER && *awakeTimer > MIN_AWAKE) { view->asleep = true; *napTimer = 0.0f; }
     }
 }
 
@@ -119,6 +132,8 @@ static void restTick(CatBody *body)
 {
     body->hunger += HUNGER_RATE;
     if (body->hunger > 1.0f) body->hunger = 1.0f;
+    body->fatigue -= FATIGUE_RECOVER;
+    if (body->fatigue < 0.0f) body->fatigue = 0.0f;
 }
 
 static float catCenterX(const CatView *view) { return GRID_ORIGIN_X + view->x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f; }
@@ -155,6 +170,7 @@ static bool loadGame(CatAgent *agent, CatGenome *genome, CatBody *body,
     bool ok = fread(&magic, sizeof(magic), 1, file) == 1 && magic == SAVE_MAGIC;
     if (ok) ok = fread(genome, sizeof(*genome), 1, file) == 1;
     if (ok) ok = fread(&agent->net, sizeof(agent->net), 1, file) == 1;
+    if (ok) ok = fread(&agent->spatial, sizeof(agent->spatial), 1, file) == 1;
     if (ok) ok = fread(body, sizeof(*body), 1, file) == 1;
     if (ok) ok = fread(pets, sizeof(*pets), 1, file) == 1;
     if (ok) ok = fread(familiarity, sizeof(float) * ITEM_TYPE_COUNT, 1, file) == 1;
@@ -163,6 +179,17 @@ static bool loadGame(CatAgent *agent, CatGenome *genome, CatBody *body,
     if (ok && *itemCount > 0) ok = fread(items, sizeof(RoomItem) * (*itemCount), 1, file) == 1;
 
     fclose(file);
+
+    if (ok)
+    {
+        agent->wanderX = body->x;
+        agent->wanderY = body->y;
+        agent->exploring = false;
+        agent->activeDrive = DRIVE_NONE;
+        agent->rewardBaseline = 0.0f;
+        AgentResetMods(agent);
+        if (agent->rng == 0u) agent->rng = 0x5BD1E995u;
+    }
     return ok;
 }
 
@@ -176,6 +203,7 @@ static void saveGame(const CatAgent *agent, const CatGenome *genome, const CatBo
     fwrite(&magic, sizeof(magic), 1, file);
     fwrite(genome, sizeof(*genome), 1, file);
     fwrite(&agent->net, sizeof(agent->net), 1, file);
+    fwrite(&agent->spatial, sizeof(agent->spatial), 1, file);
     fwrite(body, sizeof(*body), 1, file);
     fwrite(&pets, sizeof(pets), 1, file);
     fwrite(familiarity, sizeof(float) * ITEM_TYPE_COUNT, 1, file);
@@ -209,7 +237,7 @@ int RunShot(void)
     {
         stampItems(world, items, itemCount);
         int before = body.foodEaten;
-        AgentAct(agent, world, &body, -1, -1, 0.0f, (CatSenses){ 0 }, true, NULL, &voice);
+        AgentAct(agent, world, &body, -1, -1, 0.0f, (CatSenses){ 0 }, items, itemCount, true, NULL, &voice);
         if (body.foodEaten > before)
             for (int i = 0; i < itemCount; i++)
                 if (items[i].type == ITEM_BOWL && items[i].x == body.x && items[i].y == body.y)
@@ -326,7 +354,11 @@ int RunGame(void)
         if (dragCat == 0)
         {
             float mdx = mouse.x - pressPos.x, mdy = mouse.y - pressPos.y;
-            if (mdx * mdx + mdy * mdy > DRAG_CLICK_DIST * DRAG_CLICK_DIST) dragMoved = true;
+            if (mdx * mdx + mdy * mdy > DRAG_CLICK_DIST * DRAG_CLICK_DIST)
+            {
+                if (!dragMoved) AgentNeuromodPulse(agent, 0.0f, 0.0f, 0.5f);
+                dragMoved = true;
+            }
             int tx, ty;
             if (mouseToTile(mouse, &tx, &ty) && world->tiles[ty][tx] != TILE_OBSTACLE)
             {
@@ -348,6 +380,7 @@ int RunGame(void)
                 MoodPet(&view);
                 ParticleHeart(catCenterX(&view), catCenterY(&view) - 10.0f);
                 NetworkApplyReward(&agent->net, PET_REWARD);
+                AgentNeuromodPulse(agent, 0.3f, 0.4f, 0.0f);
             }
             dragCat = -1; dragItem = -1;
         }
@@ -382,13 +415,42 @@ int RunGame(void)
                         default: senses.wet = prox; break;
                     }
                     senses.novelty = (1.0f - familiarity[items[si].type]) * prox;
+                    senses.dx = items[si].x - body.x;
+                    senses.dy = items[si].y - body.y;
                     familiarity[items[si].type] += FAMILIARITY_RATE;
                     if (familiarity[items[si].type] > 1.0f) familiarity[items[si].type] = 1.0f;
                     view.curiosity = senses.novelty;
                     if (senses.novelty > NOVELTY_ALERT) { view.mood = EMOTION_CURIOUS; view.moodHold = 1.2f; }
                 }
 
-                AgentAct(agent, world, &body, -1, -1, 0.0f, senses, true, NULL, &voice);
+                AgentAct(agent, world, &body, -1, -1, 0.0f, senses, items, itemCount, true, NULL, &voice);
+
+                body.fatigue += FATIGUE_RATE;
+                if (body.fatigue > 1.0f) body.fatigue = 1.0f;
+                body.scratchUrge += SCRATCH_RATE;
+                if (body.scratchUrge > 1.0f) body.scratchUrge = 1.0f;
+
+                if (agent->activeDrive == DRIVE_SCRATCH && adjacentToItem(items, itemCount, ITEM_POST, body.x, body.y))
+                {
+                    body.scratchUrge = 0.0f;
+                    view.mood = EMOTION_HAPPY;
+                    view.moodHold = 1.2f;
+                    ParticleDust(catCenterX(&view), catCenterY(&view));
+                    AgentReinforcePlace(agent, DRIVE_SCRATCH, body.x, body.y);
+                }
+
+                bool atBed = onItemTile(items, itemCount, ITEM_BED, body.x, body.y);
+                if (agent->activeDrive == DRIVE_FATIGUE && atBed && body.fatigue > SLEEP_FATIGUE && awakeTimer > MIN_AWAKE)
+                {
+                    view.asleep = true;
+                    napTimer = 0.0f;
+                    AgentReinforcePlace(agent, DRIVE_FATIGUE, body.x, body.y);
+                }
+                else if (body.fatigue >= EXHAUSTED_FATIGUE && awakeTimer > MIN_AWAKE)
+                {
+                    view.asleep = true;
+                    napTimer = 0.0f;
+                }
 
                 float cx = GRID_ORIGIN_X + body.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
                 float cy = GRID_ORIGIN_Y + body.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;

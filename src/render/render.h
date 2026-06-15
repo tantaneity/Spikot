@@ -31,23 +31,6 @@ void ParticleCrumbs(float x, float y);
 void ParticleDust(float x, float y);
 void ParticlesUpdate(float dt);
 
-typedef enum {
-    ITEM_BOWL,
-    ITEM_BED,
-    ITEM_PLANT,
-    ITEM_POST,
-    ITEM_RUG,
-    ITEM_TYPE_COUNT
-} ItemType;
-
-typedef struct {
-    ItemType type;
-    int x;
-    int y;
-    bool hasFood;
-    float refill;
-} RoomItem;
-
 int PalettePick(Vector2 mouse);
 
 void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view, const PixelCat *cat,

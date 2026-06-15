@@ -3,6 +3,7 @@
 
 #include "config.h"
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef enum {
     TILE_EMPTY,
@@ -23,8 +24,27 @@ typedef struct {
     int x;
     int y;
     float hunger;
+    float fatigue;
+    float scratchUrge;
     int foodEaten;
 } CatBody;
+
+typedef enum {
+    ITEM_BOWL,
+    ITEM_BED,
+    ITEM_PLANT,
+    ITEM_POST,
+    ITEM_RUG,
+    ITEM_TYPE_COUNT
+} ItemType;
+
+typedef struct {
+    ItemType type;
+    int x;
+    int y;
+    bool hasFood;
+    float refill;
+} RoomItem;
 
 typedef struct {
     TileType tiles[WORLD_HEIGHT][WORLD_WIDTH];

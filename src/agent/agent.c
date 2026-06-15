@@ -7,6 +7,11 @@
 #define VOICE_BASE (SNN_NEURON_COUNT - BRAIN_VOICE_NEURONS)
 #define VOICE_MAX_SPIKES (BRAIN_VOICE_NEURONS * BRAIN_SUBSTEPS)
 
+static float clampf(float value, float lo, float hi)
+{
+    return value < lo ? lo : (value > hi ? hi : value);
+}
+
 static bool nearestFood(const World *world, int bx, int by, int *outDx, int *outDy)
 {
     int best = 1 << 30, bdx = 0, bdy = 0;
@@ -30,6 +35,87 @@ static CatAction towardAction(int dx, int dy)
     return dy > 0 ? ACTION_DOWN : ACTION_UP;
 }
 
+static float driveStrength(DriveKind drive)
+{
+    switch (drive)
+    {
+        case DRIVE_CURIOSITY: return CURIOSITY_STRENGTH;
+        case DRIVE_FATIGUE: return FATIGUE_STRENGTH;
+        case DRIVE_SCRATCH: return SCRATCH_STRENGTH;
+        default: return INSTINCT_STRENGTH;
+    }
+}
+
+static ItemType driveTargetType(DriveKind drive)
+{
+    switch (drive)
+    {
+        case DRIVE_FATIGUE: return ITEM_BED;
+        case DRIVE_SCRATCH: return ITEM_POST;
+        default: return ITEM_BOWL;
+    }
+}
+
+static int driveSpatialIndex(DriveKind drive)
+{
+    switch (drive)
+    {
+        case DRIVE_HUNGER: return 0;
+        case DRIVE_FATIGUE: return 1;
+        case DRIVE_SCRATCH: return 2;
+        default: return -1;
+    }
+}
+
+static bool seeItemDir(const RoomItem *items, int count, ItemType type,
+                       int bx, int by, int *outDx, int *outDy)
+{
+    int best = WORLD_VISION_RADIUS + 1, bdx = 0, bdy = 0;
+    bool found = false;
+    for (int i = 0; i < count; i++)
+    {
+        if (items[i].type != type) continue;
+        int adx = abs(items[i].x - bx), ady = abs(items[i].y - by);
+        if (adx > WORLD_VISION_RADIUS || ady > WORLD_VISION_RADIUS) continue;
+        int d = adx + ady;
+        if (d < best) { best = d; bdx = items[i].x - bx; bdy = items[i].y - by; found = true; }
+    }
+    *outDx = bdx;
+    *outDy = bdy;
+    return found;
+}
+
+static bool memoryGradient(const CatAgent *agent, const World *world, const CatBody *body,
+                           int driveIndex, int *outDx, int *outDy)
+{
+    static const int dirs[4][2] = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } };
+    float best = SpatialValue(&agent->spatial, driveIndex, body->x, body->y);
+    int bdx = 0, bdy = 0;
+    bool found = false;
+
+    for (int k = 0; k < 4; k++)
+    {
+        int nx = body->x + dirs[k][0], ny = body->y + dirs[k][1];
+        if (nx < 0 || nx >= WORLD_WIDTH || ny < 0 || ny >= WORLD_HEIGHT) continue;
+        if (world->tiles[ny][nx] == TILE_OBSTACLE) continue;
+        float v = SpatialValue(&agent->spatial, driveIndex, nx, ny);
+        if (v > best + 1e-4f) { best = v; bdx = dirs[k][0]; bdy = dirs[k][1]; found = true; }
+    }
+
+    if (found && best > SPATIAL_VALUE_THRESHOLD) { *outDx = bdx; *outDy = bdy; return true; }
+    return false;
+}
+
+static bool arrivedAt(const World *world, const CatBody *body, int dx, int dy)
+{
+    int manhattan = abs(dx) + abs(dy);
+    if (manhattan == 0) return true;
+    if (manhattan != 1) return false;
+    int tx = body->x + dx, ty = body->y + dy;
+    if (tx < 0 || tx >= WORLD_WIDTH || ty < 0 || ty >= WORLD_HEIGHT) return false;
+    return world->tiles[ty][tx] == TILE_OBSTACLE;
+}
+
 static uint32_t nextRandom(uint32_t *state)
 {
     uint32_t value = *state;
@@ -43,6 +129,35 @@ static uint32_t nextRandom(uint32_t *state)
 static float randomUnit(uint32_t *state)
 {
     return (nextRandom(state) >> 8) * (1.0f / 16777216.0f);
+}
+
+static DriveKind dominantDrive(const CatBody *body, CatSenses senses, float hungerDrive, float *outUrgency)
+{
+    DriveKind best = DRIVE_NONE;
+    float bestU = 0.0f;
+
+    if (hungerDrive > bestU) { best = DRIVE_HUNGER; bestU = hungerDrive; }
+
+    if (senses.novelty > DRIVE_CURIOSITY_GATE && (senses.dx != 0 || senses.dy != 0) && senses.novelty > bestU)
+    { best = DRIVE_CURIOSITY; bestU = senses.novelty; }
+
+    float fatigueU = (body->fatigue - DRIVE_FATIGUE_GATE) / (1.0f - DRIVE_FATIGUE_GATE);
+    if (fatigueU > bestU) { best = DRIVE_FATIGUE; bestU = fatigueU; }
+
+    float scratchU = (body->scratchUrge - DRIVE_SCRATCH_GATE) / (1.0f - DRIVE_SCRATCH_GATE);
+    if (scratchU > bestU) { best = DRIVE_SCRATCH; bestU = scratchU; }
+
+    *outUrgency = bestU;
+    return best;
+}
+
+static void updateWander(CatAgent *agent, const CatBody *body)
+{
+    if (abs(agent->wanderX - body->x) + abs(agent->wanderY - body->y) <= WANDER_REPICK_DIST)
+    {
+        agent->wanderX = 1 + (int)(nextRandom(&agent->rng) % (uint32_t)(WORLD_WIDTH - 2));
+        agent->wanderY = 1 + (int)(nextRandom(&agent->rng) % (uint32_t)(WORLD_HEIGHT - 2));
+    }
 }
 
 static void encode(const World *world, const CatBody *body, int otherX, int otherY,
@@ -102,13 +217,42 @@ static void accumulateOutputSpikes(const Network *net, int *actionCounts, int *v
         if (net->spiked[VOICE_BASE + n]) (*voiceCount)++;
 }
 
-static CatAction sampleAction(const int *counts, uint32_t *rng)
+static void updateNeuromods(CatAgent *agent, const CatBody *body, CatSenses senses, float reward, bool rewarded)
+{
+    Neuromods *m = &agent->mods;
+    float rpe = reward - agent->rewardBaseline;
+
+    float needPressure = body->hunger;
+    if (body->fatigue > needPressure) needPressure = body->fatigue;
+    if (body->scratchUrge > needPressure) needPressure = body->scratchUrge;
+    float threat = reward < 0.0f ? -reward : 0.0f;
+    float novelty = senses.novelty;
+
+    m->dopamine += DA_GAIN * (rpe > 0.0f ? rpe : 0.0f) - DA_DECAY * m->dopamine;
+    m->serotonin += SERO_RATE * ((1.0f - needPressure) - m->serotonin) + SERO_PULSE * (rewarded ? 1.0f : 0.0f);
+
+    float arousalDrive = needPressure * 0.6f;
+    if (novelty > arousalDrive) arousalDrive = novelty;
+    if (threat > arousalDrive) arousalDrive = threat;
+    m->noradrenaline += NE_RATE * (arousalDrive - m->noradrenaline);
+    m->acetylcholine += ACH_RATE * ((0.4f + 0.6f * novelty + 0.3f * m->dopamine) - m->acetylcholine);
+
+    m->dopamine = clampf(m->dopamine, 0.0f, 1.0f);
+    m->serotonin = clampf(m->serotonin, 0.0f, 1.0f);
+    m->noradrenaline = clampf(m->noradrenaline, 0.0f, 1.0f);
+    m->acetylcholine = clampf(m->acetylcholine, 0.0f, 1.0f);
+
+    m->valence = clampf(m->serotonin - 0.7f * needPressure + 0.3f * m->dopamine - 0.5f * threat, -1.0f, 1.0f);
+    m->arousal = clampf(0.7f * m->noradrenaline + 0.3f * m->dopamine, 0.0f, 1.0f);
+}
+
+static CatAction sampleAction(const int *counts, uint32_t *rng, float exploreBase)
 {
     float weights[ACTION_COUNT];
     float total = 0.0f;
     for (int action = 0; action < ACTION_COUNT; action++)
     {
-        weights[action] = (float)counts[action] + BRAIN_EXPLORE_BASE;
+        weights[action] = (float)counts[action] + exploreBase;
         total += weights[action];
     }
 
@@ -128,23 +272,42 @@ void AgentInit(CatAgent *agent, uint32_t seed)
     agent->lastAction = ACTION_STAY;
     agent->lastVoice = 0.0f;
     agent->rewardBaseline = 0.0f;
+    agent->activeDrive = DRIVE_NONE;
+    agent->exploring = false;
     agent->rng = seed ^ 0x5BD1E995u;
     if (agent->rng == 0u) agent->rng = 1u;
     memset(agent->actionSpikes, 0, sizeof(agent->actionSpikes));
+    SpatialInit(&agent->spatial);
+    AgentResetMods(agent);
+    agent->wanderX = WORLD_WIDTH / 2;
+    agent->wanderY = WORLD_HEIGHT / 2;
 }
 
 CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
-                   int otherX, int otherY, float heard, CatSenses senses, bool learn,
+                   int otherX, int otherY, float heard, CatSenses senses,
+                   const RoomItem *items, int itemCount, bool learn,
                    float *outReward, float *outVoice)
 {
     int foodDx = 0, foodDy = 0;
     bool smelled = nearestFood(world, body->x, body->y, &foodDx, &foodDy);
-    float drive = (body->hunger - INSTINCT_HUNGER_GATE) / (1.0f - INSTINCT_HUNGER_GATE);
-    if (drive < 0.0f) drive = 0.0f;
-    float scent = smelled ? drive : 0.0f;
+    float hungerDrive = (body->hunger - INSTINCT_HUNGER_GATE) / (1.0f - INSTINCT_HUNGER_GATE);
+    if (hungerDrive < 0.0f) hungerDrive = 0.0f;
+    bool inSmellRange = smelled && (items == NULL || abs(foodDx) + abs(foodDy) <= SMELL_RADIUS);
+    float scent = inSmellRange ? hungerDrive : 0.0f;
+
+    float inputGain = 1.0f, exploreBase = BRAIN_EXPLORE_BASE, plasticity = 1.0f;
+    if (items)
+    {
+        inputGain = 1.0f + NE_INPUT_GAIN * agent->mods.arousal;
+        exploreBase = BRAIN_EXPLORE_BASE *
+            clampf(0.5f + 0.8f * agent->mods.noradrenaline - 0.5f * agent->mods.serotonin, 0.25f, 2.0f);
+        plasticity = clampf(0.4f + 0.7f * agent->mods.dopamine + 0.4f * agent->mods.acetylcholine, 0.4f, 1.6f);
+    }
 
     float external[SNN_NEURON_COUNT];
     encode(world, body, otherX, otherY, heard, foodDx, foodDy, scent, senses, external);
+    if (items)
+        for (int i = 0; i < SNN_NEURON_COUNT; i++) external[i] *= inputGain;
 
     memset(agent->actionSpikes, 0, sizeof(agent->actionSpikes));
     int voiceCount = 0;
@@ -154,11 +317,52 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
         accumulateOutputSpikes(&agent->net, agent->actionSpikes, &voiceCount);
     }
 
-    if (smelled && drive > 0.0f)
-        agent->actionSpikes[towardAction(foodDx, foodDy)] += (int)(INSTINCT_STRENGTH * drive);
+    float urgency;
+    DriveKind drive = dominantDrive(body, senses, hungerDrive, &urgency);
+    agent->activeDrive = drive;
+    agent->exploring = false;
 
-    CatAction action = sampleAction(agent->actionSpikes, &agent->rng);
+    int spatialIndex = driveSpatialIndex(drive);
+    int tDx = 0, tDy = 0;
+    bool haveTarget = false;
+    if (drive == DRIVE_CURIOSITY) { tDx = senses.dx; tDy = senses.dy; haveTarget = (tDx != 0 || tDy != 0); }
+    else if (drive == DRIVE_HUNGER && items == NULL)
+    {
+        if (smelled) { tDx = foodDx; tDy = foodDy; haveTarget = true; }
+    }
+    else if (spatialIndex >= 0 && items)
+    {
+        if (seeItemDir(items, itemCount, driveTargetType(drive), body->x, body->y, &tDx, &tDy)) haveTarget = true;
+        else haveTarget = memoryGradient(agent, world, body, spatialIndex, &tDx, &tDy);
+    }
+
+    if (drive != DRIVE_NONE)
+    {
+        if (haveTarget)
+        {
+            if (!arrivedAt(world, body, tDx, tDy))
+                agent->actionSpikes[towardAction(tDx, tDy)] += (int)(driveStrength(drive) * urgency);
+        }
+        else if (items)
+        {
+            if (spatialIndex >= 0 && SpatialValue(&agent->spatial, spatialIndex, body->x, body->y) > SPATIAL_VALUE_THRESHOLD)
+                SpatialLearn(&agent->spatial, spatialIndex, body->x, body->y, body->x, body->y, 0.0f, true);
+            updateWander(agent, body);
+            agent->exploring = true;
+            agent->actionSpikes[towardAction(agent->wanderX - body->x, agent->wanderY - body->y)] += (int)EXPLORE_STRENGTH;
+        }
+    }
+
+    int prevX = body->x, prevY = body->y;
+    CatAction action = sampleAction(agent->actionSpikes, &agent->rng, exploreBase);
     float reward = WorldStepCat(world, body, action, otherX, otherY);
+    bool rewarded = reward >= REWARD_FOOD;
+
+    if (items && spatialIndex >= 0)
+    {
+        bool ate = (drive == DRIVE_HUNGER && rewarded);
+        SpatialLearn(&agent->spatial, spatialIndex, prevX, prevY, body->x, body->y, ate ? 1.0f : 0.0f, ate);
+    }
 
     if (learn)
     {
@@ -169,7 +373,7 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
         float total = 0.0f;
         for (int a = 0; a < ACTION_COUNT; a++)
         {
-            weights[a] = (float)agent->actionSpikes[a] + BRAIN_EXPLORE_BASE;
+            weights[a] = (float)agent->actionSpikes[a] + exploreBase;
             total += weights[a];
         }
 
@@ -178,12 +382,14 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
         for (int a = 0; a < ACTION_COUNT; a++)
         {
             float chosen = (a == (int)action) ? 1.0f : 0.0f;
-            float credit = advantage * (chosen - weights[a] / total);
+            float credit = advantage * (chosen - weights[a] / total) * plasticity;
             int base = ACTION_BASE + a * BRAIN_OUTPUT_GROUP;
             for (int n = 0; n < BRAIN_OUTPUT_GROUP; n++) modulation[base + n] = credit;
         }
         NetworkApplyReadoutReward(&agent->net, modulation);
     }
+
+    if (items) updateNeuromods(agent, body, senses, reward, rewarded);
 
     agent->lastReward = reward;
     agent->lastAction = action;
@@ -194,12 +400,39 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
     return action;
 }
 
+void AgentReinforcePlace(CatAgent *agent, DriveKind drive, int x, int y)
+{
+    int spatialIndex = driveSpatialIndex(drive);
+    if (spatialIndex >= 0)
+        SpatialLearn(&agent->spatial, spatialIndex, x, y, x, y, 1.0f, true);
+}
+
+void AgentResetMods(CatAgent *agent)
+{
+    agent->mods = (Neuromods){ 0.0f, 0.5f, 0.2f, 0.4f, 0.2f, 0.2f };
+}
+
+void AgentNeuromodPulse(CatAgent *agent, float dopamine, float serotonin, float noradrenaline)
+{
+    agent->mods.dopamine = clampf(agent->mods.dopamine + dopamine, 0.0f, 1.0f);
+    agent->mods.serotonin = clampf(agent->mods.serotonin + serotonin, 0.0f, 1.0f);
+    agent->mods.noradrenaline = clampf(agent->mods.noradrenaline + noradrenaline, 0.0f, 1.0f);
+}
+
 void AgentRest(CatAgent *agent)
 {
     for (int substep = 0; substep < BRAIN_SUBSTEPS; substep++)
         NetworkStep(&agent->net, NULL);
 
     NetworkApplyReward(&agent->net, SLEEP_CONSOLIDATE);
+
+    Neuromods *m = &agent->mods;
+    m->noradrenaline -= NE_SLEEP_DECAY * m->noradrenaline;
+    m->acetylcholine -= ACH_SLEEP_DECAY * m->acetylcholine;
+    m->serotonin += SERO_RATE * (1.0f - m->serotonin);
+    m->valence = clampf(m->serotonin + 0.3f * m->dopamine, -1.0f, 1.0f);
+    m->arousal = clampf(0.7f * m->noradrenaline, 0.0f, 1.0f);
+
     agent->lastReward = 0.0f;
     agent->lastVoice = 0.0f;
 }

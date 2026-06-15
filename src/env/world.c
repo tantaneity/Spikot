@@ -131,6 +131,8 @@ void CatBodyInit(CatBody *cat, int x, int y)
     cat->x = x;
     cat->y = y;
     cat->hunger = 0.0f;
+    cat->fatigue = 0.0f;
+    cat->scratchUrge = 0.0f;
     cat->foodEaten = 0;
 }
 

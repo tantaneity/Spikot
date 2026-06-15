@@ -95,8 +95,8 @@ int RunAgentTest(void)
         float newVoiceA = 0.0f, newVoiceB = 0.0f;
 
         CatSenses none = { 0 };
-        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, none, true, NULL, &newVoiceA);
-        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, none, true, NULL, &newVoiceB);
+        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, none, NULL, 0, true, NULL, &newVoiceA);
+        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, none, NULL, 0, true, NULL, &newVoiceB);
         voiceA = newVoiceA;
         voiceB = newVoiceB;
 
@@ -152,8 +152,8 @@ int RunLearnTest(void)
         int learnerBefore = learnerBody.foodEaten;
         int controlBefore = controlBody.foodEaten;
         CatSenses none = { 0 };
-        AgentAct(learner, learnerWorld, &learnerBody, -1, -1, 0.0f, none, true, NULL, NULL);
-        AgentAct(control, controlWorld, &controlBody, -1, -1, 0.0f, none, false, NULL, NULL);
+        AgentAct(learner, learnerWorld, &learnerBody, -1, -1, 0.0f, none, NULL, 0, true, NULL, NULL);
+        AgentAct(control, controlWorld, &controlBody, -1, -1, 0.0f, none, NULL, 0, false, NULL, NULL);
         if (learnerBody.foodEaten > learnerBefore) WorldSpawnFood(learnerWorld);
         if (controlBody.foodEaten > controlBefore) WorldSpawnFood(controlWorld);
         windowLearner += learnerBody.foodEaten - learnerBefore;
@@ -168,6 +168,58 @@ int RunLearnTest(void)
     }
 
     free(learner); free(control); free(learnerWorld); free(controlWorld);
+    return 0;
+}
+
+#define SPATIAL_TEST_EPISODES 80
+#define SPATIAL_TEST_MAX_STEPS 600
+
+int RunSpatialTest(void)
+{
+    CatAgent *agent = malloc(sizeof(CatAgent));
+    World *world = malloc(sizeof(World));
+    if (!agent || !world)
+    {
+        fprintf(stderr, "alloc failed\n");
+        free(agent); free(world);
+        return 1;
+    }
+
+    AgentInit(agent, 4242u);
+    WorldInitRoom(world, 777u);
+    RoomItem bowl = { ITEM_BOWL, 22, 16, true, 0.0f };
+    int startX = 6, startY = 6;
+
+    printf("place-cell spatial memory: steps to reach the bowl, fixed start far from a fixed bowl\n");
+    printf("if the neural map learns, average steps should fall across episodes\n");
+
+    int blockSteps = 0, blockReached = 0;
+    for (int ep = 1; ep <= SPATIAL_TEST_EPISODES; ep++)
+    {
+        CatBody body;
+        CatBodyInit(&body, startX, startY);
+        int steps = 0;
+        bool reached = false;
+        for (; steps < SPATIAL_TEST_MAX_STEPS; steps++)
+        {
+            body.hunger = 1.0f;
+            world->tiles[bowl.y][bowl.x] = TILE_FOOD;
+            int before = body.foodEaten;
+            AgentAct(agent, world, &body, -1, -1, 0.0f, (CatSenses){ 0 }, &bowl, 1, true, NULL, NULL);
+            if (body.foodEaten > before) { steps++; reached = true; break; }
+        }
+        blockSteps += steps;
+        blockReached += reached ? 1 : 0;
+        if (ep % 10 == 0)
+        {
+            printf("episodes %2d-%2d   avg steps %6.1f   reached %2d/10\n",
+                   ep - 9, ep, (double)blockSteps / 10.0, blockReached);
+            blockSteps = 0;
+            blockReached = 0;
+        }
+    }
+
+    free(agent); free(world);
     return 0;
 }
 

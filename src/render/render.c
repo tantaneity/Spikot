@@ -140,30 +140,24 @@ static void glow(float cx, float cy, float radius, Color tint, float strength)
     DrawCircleGradient((int)cx, (int)cy, radius, inner, BLANK);
 }
 
-static bool foodInSight(const World *world, const CatBody *body, int otherX, int otherY)
+static CatEmotion affectMood(const CatAgent *agent, const CatBody *body)
 {
-    float vision[128];
-    WorldVisionFor(world, body, otherX, otherY, vision);
-    int size = WorldVisionSize();
-    for (int i = 0; i < size; i++)
-        if (vision[i] > 0.5f) return true;
-    return false;
-}
-
-static CatEmotion calmMood(const World *world, const CatBody *body, int otherX, int otherY)
-{
-    if (body->hunger > 0.7f) return EMOTION_HUNGRY;
-    if (foodInSight(world, body, otherX, otherY)) return EMOTION_CURIOUS;
+    const Neuromods *m = &agent->mods;
+    if (m->arousal > 0.6f && m->valence < MOOD_VALENCE_LOW) return EMOTION_SCARED;
+    if (m->valence > MOOD_VALENCE_HAPPY) return EMOTION_HAPPY;
+    if (body->hunger > 0.6f) return EMOTION_HUNGRY;
+    if (m->acetylcholine > 0.6f && m->arousal > 0.4f) return EMOTION_CURIOUS;
     return EMOTION_CONTENT;
 }
 
 void MoodUpdate(CatView *view, const CatAgent *agent, const World *world,
                 const CatBody *body, int otherX, int otherY, float dt)
 {
+    (void)world; (void)otherX; (void)otherY;
     if (view->moodHold > 0.0f) view->moodHold -= dt;
     if (agent->lastReward >= REWARD_FOOD * 0.5f) { view->mood = EMOTION_HAPPY; view->moodHold = MOOD_HOLD_HAPPY; }
     else if (agent->lastReward <= REWARD_OBSTACLE * 0.5f) { view->mood = EMOTION_SCARED; view->moodHold = MOOD_HOLD_SCARED; }
-    else if (view->moodHold <= 0.0f) view->mood = calmMood(world, body, otherX, otherY);
+    else if (view->moodHold <= 0.0f) view->mood = affectMood(agent, body);
 }
 
 void MoodPet(CatView *view)
@@ -388,7 +382,7 @@ static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *bod
 }
 
 static void drawCatCard(int x, int y, const PixelCat *cat, const CatBody *body,
-                        float voice, CatEmotion emotion, int pets)
+                        float voice, CatEmotion emotion, int pets, const char *activity)
 {
     int w = 320, h = 80;
     DrawRectangleRounded((Rectangle){ x, y, w, h }, 0.13f, 8, PANEL_GLASS);
@@ -401,8 +395,8 @@ static void drawCatCard(int x, int y, const PixelCat *cat, const CatBody *body,
     int tx = x + 80;
     char line[96];
     DrawText("Spikot", tx, y + 10, 22, RAYWHITE);
-    snprintf(line, sizeof(line), "%s   fish %d   pets %d", CatEmotionName(emotion), body->foodEaten, pets);
-    DrawText(line, tx, y + 36, 15, TEXT_DIM);
+    snprintf(line, sizeof(line), "%s  -  %s   fish %d   pets %d", activity, CatEmotionName(emotion), body->foodEaten, pets);
+    DrawText(line, tx, y + 36, 14, TEXT_DIM);
     DrawText("voice", tx, y + 57, 13, TEXT_DIM);
     DrawRectangleRounded((Rectangle){ tx + 44, y + 57, 160, 9 }, 1.0f, 4, (Color){ 20, 18, 28, 255 });
     if (voice > 0.01f)
@@ -485,6 +479,43 @@ static void drawVignette(void)
     DrawRectangleGradientH(WINDOW_WIDTH - 80, 0, 80, WINDOW_HEIGHT, BLANK, (Color){ 0, 0, 0, 110 });
 }
 
+static const char *activityName(const CatAgent *agent, const CatView *view)
+{
+    if (view->asleep) return "sleeping";
+    if (agent->exploring) return "searching";
+    switch (agent->activeDrive)
+    {
+        case DRIVE_HUNGER: return "to the bowl";
+        case DRIVE_CURIOSITY: return "exploring";
+        case DRIVE_FATIGUE: return "to bed";
+        case DRIVE_SCRATCH: return "scratching";
+        default: return "wandering";
+    }
+}
+
+static void drawModBar(int x, int y, int w, const char *label, float value, Color color)
+{
+    DrawText(label, x, y, 12, TEXT_DIM);
+    int bx = x + 36;
+    DrawRectangleRounded((Rectangle){ bx, y, w, 9 }, 1.0f, 4, (Color){ 20, 18, 28, 255 });
+    if (value > 0.01f)
+        DrawRectangleRounded((Rectangle){ bx, y, (int)(w * value), 9 }, 1.0f, 4, color);
+}
+
+static void drawNeuromods(int x, int y, const Neuromods *mods)
+{
+    DrawText("brain chemistry", x, y, 15, TEXT_DIM);
+    y += 22;
+    int w = 150;
+    drawModBar(x, y, w, "DA",  mods->dopamine,      (Color){ 255, 196, 90, 255 }); y += 16;
+    drawModBar(x, y, w, "5HT", mods->serotonin,     (Color){ 120, 210, 130, 255 }); y += 16;
+    drawModBar(x, y, w, "NE",  mods->noradrenaline, (Color){ 240, 110, 110, 255 }); y += 16;
+    drawModBar(x, y, w, "ACh", mods->acetylcholine, (Color){ 110, 170, 255, 255 }); y += 20;
+    char line[64];
+    snprintf(line, sizeof(line), "mood %+.2f   arousal %.2f", mods->valence, mods->arousal);
+    DrawText(line, x, y, 12, TEXT_DIM);
+}
+
 static float catEnergy(const CatAgent *agent)
 {
     float e = (float)NetworkSpikeCount(&agent->net) / (SNN_NEURON_COUNT * 0.14f);
@@ -517,7 +548,8 @@ void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view
                        : "b: peek inside the brain    r: reset    esc: quit",
              PANEL_X, y, 14, TEXT_DIM); y += 26;
 
-    drawCatCard(PANEL_X, y, cat, body, voice, view->mood, view->pets);
+    drawCatCard(PANEL_X, y, cat, body, voice, view->mood, view->pets, activityName(agent, view));
+    drawNeuromods(PANEL_X, y + 92, &agent->mods);
 
     if (showBrain) drawBrain(&agent->net, PANEL_X);
     else drawPalette(time);
