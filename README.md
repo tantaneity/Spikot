@@ -15,17 +15,28 @@ raylib   rendering, OpenGL under the hood, native C
 
 No shaders. The look comes from primitives and tiny pixel textures upscaled with point filtering.
 
-## Build
+## Run it
 
-You need a C compiler and CMake. raylib pulls itself in through CMake FetchContent, so there's nothing to install by hand.
+On Windows, just double-click `run.bat` (or `run.bat` from a terminal). It finds the compiler, builds if needed, and launches. First build takes a minute while raylib clones and compiles, after that it's quick.
+
+Manually:
 
 ```
-cmake -S . -B build -G "MinGW Makefiles"
+cmake -S . -B build -G Ninja
 cmake --build build
-./build/bin/spikot.exe
+build\bin\spikot.exe
 ```
 
-First configure takes a minute while raylib clones and compiles. After that it's fast.
+You need a C compiler (gcc via WinLibs/w64devkit works great) and CMake. raylib pulls itself in through FetchContent, nothing to install by hand.
+
+Controls:
+
+```
+r      reset the room and both brains (fresh cats)
+esc    quit
+```
+
+Watch the right panel: two cats live in the room, each line shows what they're doing and their voice level (the bar). Below that, cat A's whole brain, every neuron, lit by how close it is to firing, white when it spikes. Blue cells are inputs (what the cat sees and hears), orange are outputs (move and voice).
 
 ## Layout
 
