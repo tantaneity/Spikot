@@ -147,6 +147,18 @@ static void drawEyes(Image *canvas, const CatGenome *genome, const EmotionStyle 
     }
 }
 
+const char *CatEmotionName(CatEmotion emotion)
+{
+    switch (emotion)
+    {
+        case EMOTION_HAPPY: return "happy";
+        case EMOTION_CURIOUS: return "curious";
+        case EMOTION_SCARED: return "scared";
+        case EMOTION_HUNGRY: return "hungry";
+        default: return "content";
+    }
+}
+
 Image CatRenderImage(CatGenome genome, CatEmotion emotion)
 {
     EmotionStyle style = styleFor(emotion);

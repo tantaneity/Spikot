@@ -18,6 +18,7 @@ typedef struct {
     Texture2D textures[EMOTION_COUNT];
 } PixelCat;
 
+const char *CatEmotionName(CatEmotion emotion);
 Image CatRenderImage(CatGenome genome, CatEmotion emotion);
 PixelCat PixelCatCreate(CatGenome genome);
 void PixelCatDraw(const PixelCat *cat, Vector2 position, float scale, CatEmotion emotion, bool flipX);
