@@ -52,6 +52,16 @@
 #define BOB_SPEED 5.0f
 #define BOB_AMP 1.6f
 #define MEOW_THRESHOLD 0.11f
+#define WALK_TILT 7.0f
+#define WALK_FREQ 14.0f
+#define MOOD_HOLD_HAPPY 1.0f
+#define MOOD_HOLD_SCARED 0.6f
+#define MOOD_HOLD_PET 1.6f
+#define PET_REWARD 0.7f
+#define DRAG_CLICK_DIST 6.0f
+#define GRAB_RADIUS 20.0f
+#define MAX_HEARTS 32
+#define HEART_RISE 22.0f
 
 static const Color FLOOR_COLOR_A = (Color){ 70, 56, 52, 255 };
 static const Color FLOOR_COLOR_B = (Color){ 78, 63, 58, 255 };
@@ -67,7 +77,54 @@ typedef struct {
     float x;
     float y;
     bool faceLeft;
+    CatEmotion mood;
+    float moodHold;
+    int pets;
 } CatView;
+
+typedef struct {
+    float x;
+    float y;
+    float life;
+    bool active;
+} Heart;
+
+static Heart g_hearts[MAX_HEARTS];
+
+static void spawnHeart(float x, float y)
+{
+    for (int i = 0; i < MAX_HEARTS; i++)
+        if (!g_hearts[i].active)
+        {
+            g_hearts[i] = (Heart){ x, y, 1.0f, true };
+            return;
+        }
+}
+
+static void updateHearts(float dt)
+{
+    for (int i = 0; i < MAX_HEARTS; i++)
+        if (g_hearts[i].active)
+        {
+            g_hearts[i].y -= HEART_RISE * dt;
+            g_hearts[i].life -= dt;
+            if (g_hearts[i].life <= 0.0f) g_hearts[i].active = false;
+        }
+}
+
+static void drawHearts(void)
+{
+    for (int i = 0; i < MAX_HEARTS; i++)
+    {
+        if (!g_hearts[i].active) continue;
+        float x = g_hearts[i].x;
+        float y = g_hearts[i].y;
+        Color pink = (Color){ 255, 120, 150, (unsigned char)(g_hearts[i].life * 230.0f) };
+        DrawCircle((int)x - 3, (int)y, 3.2f, pink);
+        DrawCircle((int)x + 3, (int)y, 3.2f, pink);
+        DrawTriangle((Vector2){ x - 6, y + 1 }, (Vector2){ x, y + 8 }, (Vector2){ x + 6, y + 1 }, pink);
+    }
+}
 
 static uint32_t xorshiftSeed(uint32_t *state)
 {
@@ -245,18 +302,6 @@ static int runExport(void)
     return 0;
 }
 
-static const char *actionName(CatAction action)
-{
-    switch (action)
-    {
-        case ACTION_UP: return "up";
-        case ACTION_DOWN: return "down";
-        case ACTION_LEFT: return "left";
-        case ACTION_RIGHT: return "right";
-        default: return "stay";
-    }
-}
-
 static void drawFish(int cx, int cy)
 {
     DrawEllipse(cx, cy, 6.0f, 4.0f, FISH_COLOR);
@@ -305,14 +350,32 @@ static bool foodInSight(const World *world, const CatBody *body, int otherX, int
     return false;
 }
 
-static CatEmotion deriveEmotion(const CatAgent *agent, const World *world,
-                                const CatBody *body, int otherX, int otherY)
+static CatEmotion calmMood(const World *world, const CatBody *body, int otherX, int otherY)
 {
-    if (agent->lastReward >= REWARD_FOOD * 0.5f) return EMOTION_HAPPY;
-    if (agent->lastReward <= REWARD_OBSTACLE * 0.5f) return EMOTION_SCARED;
     if (body->hunger > 0.7f) return EMOTION_HUNGRY;
     if (foodInSight(world, body, otherX, otherY)) return EMOTION_CURIOUS;
     return EMOTION_CONTENT;
+}
+
+static void moodUpdate(CatView *view, const CatAgent *agent, const World *world,
+                       const CatBody *body, int otherX, int otherY, float dt)
+{
+    if (view->moodHold > 0.0f) view->moodHold -= dt;
+
+    if (agent->lastReward >= REWARD_FOOD * 0.5f)
+    {
+        view->mood = EMOTION_HAPPY;
+        view->moodHold = MOOD_HOLD_HAPPY;
+    }
+    else if (agent->lastReward <= REWARD_OBSTACLE * 0.5f)
+    {
+        view->mood = EMOTION_SCARED;
+        view->moodHold = MOOD_HOLD_SCARED;
+    }
+    else if (view->moodHold <= 0.0f)
+    {
+        view->mood = calmMood(world, body, otherX, otherY);
+    }
 }
 
 static void viewUpdate(CatView *view, const CatBody *body)
@@ -335,19 +398,27 @@ static void drawMeow(float cx, float topY)
     DrawRectangle((int)cx, (int)topY - 19, 2, 9, ink);
 }
 
-static void drawCat(const PixelCat *cat, const CatView *view, CatEmotion emotion, float voice, double time)
+static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *body, float voice, double time)
 {
     float drawSize = CAT_CANVAS_SIZE * CAT_DRAW_SCALE;
     float centerX = GRID_ORIGIN_X + view->x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
     float centerY = GRID_ORIGIN_Y + view->y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
-    float bob = sinf((float)time * BOB_SPEED + view->x * 1.7f) * BOB_AMP;
+
+    float distance = fabsf(body->x - view->x) + fabsf(body->y - view->y);
+    bool walking = distance > 0.06f;
+    float t = (float)time;
+    float bob = sinf(t * BOB_SPEED + view->x * 1.7f) * (walking ? BOB_AMP * 2.2f : BOB_AMP);
+    float tilt = walking ? sinf(t * WALK_FREQ) * WALK_TILT : 0.0f;
 
     DrawEllipse((int)centerX, (int)(centerY + 8.0f), 9.0f, 3.5f, SHADOW_COLOR);
 
-    Vector2 position = { centerX - drawSize * 0.5f, centerY - drawSize * 0.5f - 3.0f + bob };
-    PixelCatDraw(cat, position, CAT_DRAW_SCALE, emotion, view->faceLeft);
+    Texture2D texture = cat->textures[view->mood];
+    Rectangle source = { 0.0f, 0.0f, (view->faceLeft ? -1.0f : 1.0f) * texture.width, (float)texture.height };
+    Rectangle dest = { centerX, centerY - 3.0f + bob, drawSize, drawSize };
+    Vector2 origin = { drawSize * 0.5f, drawSize * 0.5f };
+    DrawTexturePro(texture, source, dest, origin, tilt, WHITE);
 
-    if (voice > MEOW_THRESHOLD) drawMeow(centerX, centerY - drawSize * 0.5f);
+    if (voice > MEOW_THRESHOLD) drawMeow(centerX, centerY - drawSize * 0.5f + bob);
 }
 
 static void drawVoiceBar(int x, int y, int width, float level, Color tint)
@@ -357,7 +428,7 @@ static void drawVoiceBar(int x, int y, int width, float level, Color tint)
 }
 
 static int drawCatCard(int panelX, int y, const char *label, const PixelCat *cat,
-                       const CatBody *body, float voice, CatEmotion emotion)
+                       const CatBody *body, float voice, CatEmotion emotion, int pets)
 {
     DrawRectangleRounded((Rectangle){ panelX, y, 300, 74 }, 0.12f, 6, (Color){ 46, 40, 46, 255 });
     PixelCatDraw(cat, (Vector2){ panelX + 8, y + 9 }, 3.5f, emotion, false);
@@ -366,7 +437,7 @@ static int drawCatCard(int panelX, int y, const char *label, const PixelCat *cat
     char line[96];
     snprintf(line, sizeof(line), "cat %s", label);
     DrawText(line, textX, y + 8, 20, RAYWHITE);
-    snprintf(line, sizeof(line), "%s   fish %d", emotionName(emotion), body->foodEaten);
+    snprintf(line, sizeof(line), "%s   fish %d   pets %d", emotionName(emotion), body->foodEaten, pets);
     DrawText(line, textX, y + 32, 16, (Color){ 200, 195, 190, 255 });
     DrawText("voice", textX, y + 54, 14, GRAY);
     drawVoiceBar(textX + 44, y + 54, 150, voice, VOICE_COLOR);
@@ -414,18 +485,16 @@ static void renderScene(const CatAgent *agentA, const CatBody *bodyA, const CatV
 {
     int panelX = GRID_ORIGIN_X + WORLD_WIDTH * WORLD_TILE_PX + 28;
 
-    CatEmotion emotionA = deriveEmotion(agentA, world, bodyA, bodyB->x, bodyB->y);
-    CatEmotion emotionB = deriveEmotion(agentB, world, bodyB, bodyA->x, bodyA->y);
-
     BeginDrawing();
     ClearBackground(BACKGROUND_COLOR);
     drawWorld(world);
-    drawCat(catA, viewA, emotionA, voiceA, time);
-    drawCat(catB, viewB, emotionB, voiceB, time);
+    drawCat(catA, viewA, bodyA, voiceA, time);
+    drawCat(catB, viewB, bodyB, voiceB, time);
+    drawHearts();
 
     int y = GRID_ORIGIN_Y;
     DrawText(WINDOW_TITLE, panelX, y, 30, RAYWHITE); y += 38;
-    DrawText("two cats, two spiking brains", panelX, y, 15, GRAY); y += 22;
+    DrawText("drag a cat to move it, click to pet", panelX, y, 15, GRAY); y += 22;
     DrawText(showBrain ? "b: hide brain    r: new cats    esc: quit"
                        : "b: peek inside the brain    r: new cats    esc: quit",
              panelX, y, 15, GRAY); y += 28;
@@ -436,9 +505,9 @@ static void renderScene(const CatAgent *agentA, const CatBody *bodyA, const CatV
     }
     else
     {
-        y = drawCatCard(panelX, y, "A", catA, bodyA, voiceA, emotionA);
+        y = drawCatCard(panelX, y, "A", catA, bodyA, voiceA, viewA->mood, viewA->pets);
         y += 12;
-        y = drawCatCard(panelX, y, "B", catB, bodyB, voiceB, emotionB);
+        y = drawCatCard(panelX, y, "B", catB, bodyB, voiceB, viewB->mood, viewB->pets);
     }
 
     DrawFPS(WINDOW_WIDTH - 90, 12);
@@ -474,8 +543,10 @@ static int runShot(void)
         voiceA = nva; voiceB = nvb;
     }
 
-    CatView viewA = { (float)bodyA.x, (float)bodyA.y, false };
-    CatView viewB = { (float)bodyB.x, (float)bodyB.y, false };
+    CatView viewA = { (float)bodyA.x, (float)bodyA.y, false, EMOTION_CONTENT, 0.0f };
+    CatView viewB = { (float)bodyB.x, (float)bodyB.y, false, EMOTION_CONTENT, 0.0f };
+    moodUpdate(&viewA, agentA, world, &bodyA, bodyB.x, bodyB.y, 0.0f);
+    moodUpdate(&viewB, agentB, world, &bodyB, bodyA.x, bodyA.y, 0.0f);
 
     for (int frame = 0; frame < 8; frame++)
         renderScene(agentA, &bodyA, &viewA, &catA, voiceA,
@@ -527,12 +598,17 @@ int main(int argc, char **argv)
     float voiceA = 0.0f, voiceB = 0.0f;
     int frame = 0;
     bool showBrain = false;
+    int dragging = -1;
+    bool dragMoved = false;
+    Vector2 pressPos = { 0 };
 
-    CatView viewA = { (float)bodyA.x, (float)bodyA.y, false };
-    CatView viewB = { (float)bodyB.x, (float)bodyB.y, false };
+    CatView viewA = { (float)bodyA.x, (float)bodyA.y, false, EMOTION_CONTENT, 0.0f, 0 };
+    CatView viewB = { (float)bodyB.x, (float)bodyB.y, false, EMOTION_CONTENT, 0.0f, 0 };
 
     while (!WindowShouldClose())
     {
+        float dt = GetFrameTime();
+
         if (IsKeyPressed(KEY_R))
         {
             AgentInit(agentA, nextSeed());
@@ -540,23 +616,79 @@ int main(int argc, char **argv)
             WorldInit(world, nextSeed());
             CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
             CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
-            viewA = (CatView){ (float)bodyA.x, (float)bodyA.y, false };
-            viewB = (CatView){ (float)bodyB.x, (float)bodyB.y, false };
+            viewA = (CatView){ (float)bodyA.x, (float)bodyA.y, false, EMOTION_CONTENT, 0.0f, 0 };
+            viewB = (CatView){ (float)bodyB.x, (float)bodyB.y, false, EMOTION_CONTENT, 0.0f, 0 };
             voiceA = 0.0f; voiceB = 0.0f;
+            dragging = -1;
         }
         if (IsKeyPressed(KEY_B)) showBrain = !showBrain;
+
+        Vector2 mouse = GetMousePosition();
+        float ax = GRID_ORIGIN_X + viewA.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+        float ay = GRID_ORIGIN_Y + viewA.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+        float bx = GRID_ORIGIN_X + viewB.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+        float by = GRID_ORIGIN_Y + viewB.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+        float distA = (mouse.x - ax) * (mouse.x - ax) + (mouse.y - ay) * (mouse.y - ay);
+        float distB = (mouse.x - bx) * (mouse.x - bx) + (mouse.y - by) * (mouse.y - by);
+        int hovered = -1;
+        if (distA < GRAB_RADIUS * GRAB_RADIUS && distA <= distB) hovered = 0;
+        else if (distB < GRAB_RADIUS * GRAB_RADIUS) hovered = 1;
+        SetMouseCursor((hovered >= 0 || dragging >= 0) ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hovered >= 0)
+        {
+            dragging = hovered;
+            dragMoved = false;
+            pressPos = mouse;
+        }
+        if (dragging >= 0)
+        {
+            float mdx = mouse.x - pressPos.x, mdy = mouse.y - pressPos.y;
+            if (mdx * mdx + mdy * mdy > DRAG_CLICK_DIST * DRAG_CLICK_DIST) dragMoved = true;
+
+            int tx = (int)((mouse.x - GRID_ORIGIN_X) / WORLD_TILE_PX);
+            int ty = (int)((mouse.y - GRID_ORIGIN_Y) / WORLD_TILE_PX);
+            if (tx >= 0 && tx < WORLD_WIDTH && ty >= 0 && ty < WORLD_HEIGHT &&
+                world->tiles[ty][tx] != TILE_OBSTACLE)
+            {
+                CatBody *body = (dragging == 0) ? &bodyA : &bodyB;
+                CatView *view = (dragging == 0) ? &viewA : &viewB;
+                body->x = tx;
+                body->y = ty;
+                view->x = (mouse.x - GRID_ORIGIN_X - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
+                view->y = (mouse.y - GRID_ORIGIN_Y - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
+            }
+        }
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+        {
+            if (dragging >= 0 && !dragMoved)
+            {
+                CatView *view = (dragging == 0) ? &viewA : &viewB;
+                CatAgent *agent = (dragging == 0) ? agentA : agentB;
+                view->mood = EMOTION_HAPPY;
+                view->moodHold = MOOD_HOLD_PET;
+                view->pets++;
+                spawnHeart(GRID_ORIGIN_X + view->x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f,
+                           GRID_ORIGIN_Y + view->y * WORLD_TILE_PX);
+                NetworkApplyReward(&agent->net, PET_REWARD);
+            }
+            dragging = -1;
+        }
 
         if (++frame >= SIM_FRAME_INTERVAL)
         {
             frame = 0;
-            float nva = 0.0f, nvb = 0.0f;
-            AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
-            AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
+            float nva = voiceA, nvb = voiceB;
+            if (dragging != 0) AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
+            if (dragging != 1) AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
             voiceA = nva; voiceB = nvb;
         }
 
-        viewUpdate(&viewA, &bodyA);
-        viewUpdate(&viewB, &bodyB);
+        if (dragging != 0) viewUpdate(&viewA, &bodyA);
+        if (dragging != 1) viewUpdate(&viewB, &bodyB);
+        moodUpdate(&viewA, agentA, world, &bodyA, bodyB.x, bodyB.y, dt);
+        moodUpdate(&viewB, agentB, world, &bodyB, bodyA.x, bodyA.y, dt);
+        updateHearts(dt);
 
         renderScene(agentA, &bodyA, &viewA, &catA, voiceA,
                     agentB, &bodyB, &viewB, &catB, voiceB, world, showBrain, GetTime());
