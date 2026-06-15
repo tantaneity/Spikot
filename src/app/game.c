@@ -284,307 +284,336 @@ int RunShot(void)
     return 0;
 }
 
+typedef struct {
+    CatAgent *agent;
+    World *world;
+    CatGenome genome;
+    PixelCat cat;
+    CatBody body;
+    CatView view;
+    RoomItem items[MAX_ITEMS];
+    int itemCount;
+    Stain stains[MAX_STAINS];
+    int stainCount;
+    float familiarity[ITEM_TYPE_COUNT];
+    float voice;
+    int frame;
+    bool showBrain;
+    int dragCat, dragItem;
+    bool dragMoved;
+    Vector2 pressPos;
+    Vector2 mouse;
+    float awakeTimer, napTimer;
+} Session;
+
+static void clampUp(float *value)
+{
+    if (*value > 1.0f) *value = 1.0f;
+}
+
+static void sessionReset(Session *s)
+{
+    AgentInit(s->agent, nextSeed());
+    PixelCatUnload(&s->cat);
+    s->genome = CatGenomeRandom(nextSeed());
+    s->cat = PixelCatCreate(s->genome);
+    WorldInitRoom(s->world, nextSeed());
+    CatBodyInit(&s->body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+    s->view = viewAt(&s->body);
+    s->itemCount = resetRoom(s->items);
+    for (int i = 0; i < ITEM_TYPE_COUNT; i++) s->familiarity[i] = 0.0f;
+    s->voice = 0.0f; s->awakeTimer = 0.0f; s->napTimer = 0.0f;
+    s->stainCount = 0;
+    s->dragCat = -1; s->dragItem = -1;
+}
+
+static void handleInput(Session *s)
+{
+    if (IsKeyPressed(KEY_R)) sessionReset(s);
+    if (IsKeyPressed(KEY_B)) s->showBrain = !s->showBrain;
+
+    stampItems(s->world, s->items, s->itemCount);
+
+    Vector2 mouse = GetMousePosition();
+    s->mouse = mouse;
+    float dxCat = mouse.x - catCenterX(&s->view), dyCat = mouse.y - catCenterY(&s->view);
+    bool overCat = (dxCat * dxCat + dyCat * dyCat) < GRAB_RADIUS * GRAB_RADIUS;
+    int overItem = (s->dragCat < 0 && !overCat) ? itemUnderMouse(s->items, s->itemCount, mouse) : -1;
+    SetMouseCursor((overCat || overItem >= 0 || s->dragCat >= 0 || s->dragItem >= 0)
+                   ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
+
+    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+    {
+        if (overCat)
+        {
+            s->dragCat = 0; s->dragMoved = false; s->pressPos = mouse;
+            s->view.asleep = false; s->awakeTimer = 0.0f;
+        }
+        else if (overItem >= 0)
+        {
+            s->dragItem = overItem;
+        }
+        else
+        {
+            int tx, ty;
+            if (mouseToTile(mouse, &tx, &ty) && removeStainAt(s->stains, &s->stainCount, tx, ty))
+            {
+                /* wiped the floor clean */
+            }
+            else
+            {
+                int pick = PalettePick(mouse);
+                if (pick >= 0 && s->itemCount < MAX_ITEMS)
+                {
+                    s->items[s->itemCount] = (RoomItem){ (ItemType)pick, WORLD_WIDTH / 2, WORLD_HEIGHT / 2,
+                                                         pick == ITEM_BOWL, 0.0f };
+                    s->dragItem = s->itemCount;
+                    s->itemCount++;
+                }
+            }
+        }
+    }
+
+    if (s->dragCat == 0)
+    {
+        float mdx = mouse.x - s->pressPos.x, mdy = mouse.y - s->pressPos.y;
+        if (mdx * mdx + mdy * mdy > DRAG_CLICK_DIST * DRAG_CLICK_DIST)
+        {
+            if (!s->dragMoved) AgentNeuromodPulse(s->agent, 0.0f, 0.0f, 0.5f);
+            s->dragMoved = true;
+        }
+        int tx, ty;
+        if (mouseToTile(mouse, &tx, &ty) && s->world->tiles[ty][tx] != TILE_OBSTACLE)
+        {
+            s->body.x = tx; s->body.y = ty;
+            s->view.x = (mouse.x - GRID_ORIGIN_X - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
+            s->view.y = (mouse.y - GRID_ORIGIN_Y - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
+        }
+    }
+    else if (s->dragItem >= 0)
+    {
+        int tx, ty;
+        if (mouseToTile(mouse, &tx, &ty)) { s->items[s->dragItem].x = tx; s->items[s->dragItem].y = ty; }
+    }
+
+    if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
+    {
+        if (s->dragCat == 0 && !s->dragMoved)
+        {
+            MoodPet(&s->view);
+            ParticleHeart(catCenterX(&s->view), catCenterY(&s->view) - 10.0f);
+            NetworkApplyReward(&s->agent->net, PET_REWARD);
+            AgentNeuromodPulse(s->agent, 0.3f, 0.4f, 0.0f);
+            s->body.social = 0.0f;
+            s->body.bond += OXYTOCIN_PET;
+            clampUp(&s->body.bond);
+        }
+        s->dragCat = -1; s->dragItem = -1;
+    }
+}
+
+static CatSenses senseNearbyItem(Session *s)
+{
+    CatSenses senses = { 0 };
+    int senseDist;
+    int si = nearestSensibleItem(s->items, s->itemCount, s->body.x, s->body.y, &senseDist);
+    if (si < 0) return senses;
+
+    float prox = 1.0f - (float)senseDist / (SENSE_RANGE + 1);
+    switch (itemMaterial(s->items[si].type))
+    {
+        case MAT_SOFT: senses.soft = prox; break;
+        case MAT_HARD: senses.hard = prox; break;
+        default: senses.wet = prox; break;
+    }
+    senses.novelty = (1.0f - s->familiarity[s->items[si].type]) * prox;
+    senses.dx = s->items[si].x - s->body.x;
+    senses.dy = s->items[si].y - s->body.y;
+    s->familiarity[s->items[si].type] += FAMILIARITY_RATE;
+    clampUp(&s->familiarity[s->items[si].type]);
+    s->view.curiosity = senses.novelty;
+    if (senses.novelty > NOVELTY_ALERT) { s->view.mood = EMOTION_CURIOUS; s->view.moodHold = 1.2f; }
+    return senses;
+}
+
+static void raiseNeeds(CatBody *body)
+{
+    body->fatigue += FATIGUE_RATE;       clampUp(&body->fatigue);
+    body->scratchUrge += SCRATCH_RATE;   clampUp(&body->scratchUrge);
+    body->bladder += BLADDER_RATE;       clampUp(&body->bladder);
+    body->boredom += BOREDOM_RATE;       clampUp(&body->boredom);
+    body->grime += GRIME_RATE;           clampUp(&body->grime);
+    body->social += SOCIAL_RATE;         clampUp(&body->social);
+}
+
+static void satisfyDrives(Session *s, int playerTileX, int playerTileY)
+{
+    CatAgent *agent = s->agent;
+    CatBody *body = &s->body;
+
+    if (agent->activeDrive == DRIVE_SOCIAL && playerTileX >= 0 &&
+        abs(body->x - playerTileX) + abs(body->y - playerTileY) <= SOCIAL_NEAR_DIST)
+    {
+        body->social -= SOCIAL_RELIEF;
+        if (body->social < 0.0f) body->social = 0.0f;
+        body->bond += OXYTOCIN_NEAR;
+        clampUp(&body->bond);
+        AgentNeuromodPulse(agent, 0.0f, 0.15f, 0.0f);
+    }
+
+    if (agent->activeDrive == DRIVE_SCRATCH && adjacentToItem(s->items, s->itemCount, ITEM_POST, body->x, body->y))
+    {
+        body->scratchUrge = 0.0f;
+        s->view.mood = EMOTION_HAPPY;
+        s->view.moodHold = 1.2f;
+        ParticleDust(catCenterX(&s->view), catCenterY(&s->view));
+        AgentReinforcePlace(agent, DRIVE_SCRATCH, body->x, body->y);
+    }
+
+    if (agent->activeDrive == DRIVE_BLADDER && onItemTile(s->items, s->itemCount, ITEM_LITTER, body->x, body->y))
+    {
+        body->bladder = 0.0f;
+        body->grime += GRIME_ON_EVENT;
+        clampUp(&body->grime);
+        ParticleDust(catCenterX(&s->view), catCenterY(&s->view));
+        AgentReinforcePlace(agent, DRIVE_BLADDER, body->x, body->y);
+        AgentNeuromodPulse(agent, 0.0f, 0.3f, 0.0f);
+    }
+    else if (body->bladder >= 1.0f)
+    {
+        addStain(s->stains, &s->stainCount, body->x, body->y);
+        body->bladder = 0.0f;
+        AgentNeuromodPulse(agent, 0.0f, 0.0f, 0.2f);
+    }
+
+    if (stainAt(s->stains, s->stainCount, body->x, body->y))
+    {
+        body->grime += STAIN_GRIME;
+        clampUp(&body->grime);
+    }
+
+    if (agent->activeDrive == DRIVE_PLAY)
+    {
+        body->boredom -= BOREDOM_RELIEF;
+        if (body->boredom < 0.0f) body->boredom = 0.0f;
+    }
+
+    if (agent->activeDrive == DRIVE_GROOM)
+    {
+        body->grime -= GRIME_RELIEF;
+        if (body->grime < 0.0f) body->grime = 0.0f;
+        AgentNeuromodPulse(agent, 0.0f, 0.05f, 0.0f);
+    }
+
+    bool atBed = onItemTile(s->items, s->itemCount, ITEM_BED, body->x, body->y);
+    if (agent->activeDrive == DRIVE_FATIGUE && atBed && body->fatigue > SLEEP_FATIGUE && s->awakeTimer > MIN_AWAKE)
+    {
+        s->view.asleep = true;
+        s->napTimer = 0.0f;
+        AgentReinforcePlace(agent, DRIVE_FATIGUE, body->x, body->y);
+    }
+    else if (body->fatigue >= EXHAUSTED_FATIGUE && s->awakeTimer > MIN_AWAKE)
+    {
+        s->view.asleep = true;
+        s->napTimer = 0.0f;
+    }
+}
+
+static void thinkStep(Session *s)
+{
+    int before = s->body.foodEaten;
+    int px = s->body.x, py = s->body.y;
+
+    CatSenses senses = senseNearbyItem(s);
+
+    int playerTileX = -1, playerTileY = -1;
+    if (s->dragCat < 0)
+    {
+        int ptx, pty;
+        if (mouseToTile(s->mouse, &ptx, &pty)) { playerTileX = ptx; playerTileY = pty; }
+    }
+
+    float dayPhase = (float)(fmod(GetTime(), DAY_LENGTH) / DAY_LENGTH);
+    s->agent->circadian = 1.0f - fabsf(sinf(dayPhase * 2.0f * PI));
+
+    AgentAct(s->agent, s->world, &s->body, -1, -1, playerTileX, playerTileY, 0.0f, senses,
+             s->items, s->itemCount, true, NULL, &s->voice);
+
+    raiseNeeds(&s->body);
+    satisfyDrives(s, playerTileX, playerTileY);
+
+    float cx = GRID_ORIGIN_X + s->body.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+    float cy = GRID_ORIGIN_Y + s->body.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+    if (s->body.foodEaten > before)
+    {
+        ParticleCrumbs(cx, cy);
+        s->body.grime += GRIME_ON_EVENT;
+        clampUp(&s->body.grime);
+        for (int i = 0; i < s->itemCount; i++)
+            if (s->items[i].type == ITEM_BOWL && s->items[i].x == s->body.x && s->items[i].y == s->body.y)
+                { s->items[i].hasFood = false; s->items[i].refill = BOWL_REFILL; }
+    }
+    if (s->body.x != px || s->body.y != py)
+        ParticleDust(cx, cy + WORLD_TILE_PX * 0.35f);
+}
+
 int RunGame(void)
 {
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
     SetTargetFPS(TARGET_FPS);
     SetRandomSeed((unsigned int)(GetTime() * 1000.0) + 1u);
 
-    CatAgent *agent = malloc(sizeof(CatAgent));
-    World *world = malloc(sizeof(World));
-    if (!agent || !world) { CloseWindow(); return 1; }
+    Session *s = calloc(1, sizeof(Session));
+    if (!s) { CloseWindow(); return 1; }
+    s->agent = malloc(sizeof(CatAgent));
+    s->world = malloc(sizeof(World));
+    if (!s->agent || !s->world) { free(s->agent); free(s->world); free(s); CloseWindow(); return 1; }
 
-    WorldInitRoom(world, nextSeed());
+    WorldInitRoom(s->world, nextSeed());
 
-    CatGenome genome;
-    CatBody body;
-    RoomItem items[MAX_ITEMS];
-    int itemCount = 0;
     int savedPets = 0;
-    Stain stains[MAX_STAINS];
-    int stainCount = 0;
-    float familiarity[ITEM_TYPE_COUNT] = { 0 };
-
-    if (!loadGame(agent, &genome, &body, &savedPets, items, &itemCount, familiarity))
+    if (!loadGame(s->agent, &s->genome, &s->body, &savedPets, s->items, &s->itemCount, s->familiarity))
     {
-        AgentInit(agent, nextSeed());
-        genome = CatGenomeRandom(nextSeed());
-        CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-        itemCount = resetRoom(items);
+        AgentInit(s->agent, nextSeed());
+        s->genome = CatGenomeRandom(nextSeed());
+        CatBodyInit(&s->body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+        s->itemCount = resetRoom(s->items);
     }
 
-    PixelCat cat = PixelCatCreate(genome);
-    CatView view = viewAt(&body);
-    view.pets = savedPets;
-
-    float voice = 0.0f;
-    int frame = 0;
-    bool showBrain = false;
-    int dragCat = -1, dragItem = -1;
-    bool dragMoved = false;
-    Vector2 pressPos = { 0 };
-    float awakeTimer = 0.0f, napTimer = 0.0f;
+    s->cat = PixelCatCreate(s->genome);
+    s->view = viewAt(&s->body);
+    s->view.pets = savedPets;
+    s->dragCat = -1; s->dragItem = -1;
 
     while (!WindowShouldClose())
     {
         float dt = GetFrameTime();
+        handleInput(s);
 
-        if (IsKeyPressed(KEY_R))
+        if (++s->frame >= SIM_FRAME_INTERVAL)
         {
-            AgentInit(agent, nextSeed());
-            PixelCatUnload(&cat);
-            genome = CatGenomeRandom(nextSeed());
-            cat = PixelCatCreate(genome);
-            WorldInitRoom(world, nextSeed());
-            CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-            view = viewAt(&body);
-            itemCount = resetRoom(items);
-            for (int i = 0; i < ITEM_TYPE_COUNT; i++) familiarity[i] = 0.0f;
-            voice = 0.0f; awakeTimer = 0.0f; napTimer = 0.0f;
-            stainCount = 0;
-            dragCat = -1; dragItem = -1;
-        }
-        if (IsKeyPressed(KEY_B)) showBrain = !showBrain;
-
-        stampItems(world, items, itemCount);
-
-        Vector2 mouse = GetMousePosition();
-        float dxCat = mouse.x - catCenterX(&view), dyCat = mouse.y - catCenterY(&view);
-        bool overCat = (dxCat * dxCat + dyCat * dyCat) < GRAB_RADIUS * GRAB_RADIUS;
-        int overItem = (dragCat < 0 && !overCat) ? itemUnderMouse(items, itemCount, mouse) : -1;
-        SetMouseCursor((overCat || overItem >= 0 || dragCat >= 0 || dragItem >= 0)
-                       ? MOUSE_CURSOR_POINTING_HAND : MOUSE_CURSOR_DEFAULT);
-
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-        {
-            if (overCat)
-            {
-                dragCat = 0; dragMoved = false; pressPos = mouse;
-                view.asleep = false; awakeTimer = 0.0f;
-            }
-            else if (overItem >= 0)
-            {
-                dragItem = overItem;
-            }
-            else
-            {
-                int tx, ty;
-                if (mouseToTile(mouse, &tx, &ty) && removeStainAt(stains, &stainCount, tx, ty))
-                {
-                    /* wiped the floor clean */
-                }
-                else
-                {
-                    int pick = PalettePick(mouse);
-                    if (pick >= 0 && itemCount < MAX_ITEMS)
-                    {
-                        items[itemCount] = (RoomItem){ (ItemType)pick, WORLD_WIDTH / 2, WORLD_HEIGHT / 2,
-                                                       pick == ITEM_BOWL, 0.0f };
-                        dragItem = itemCount;
-                        itemCount++;
-                    }
-                }
-            }
+            s->frame = 0;
+            if (s->dragCat == 0) AgentCarried(s->agent, s->body.bond);
+            else if (s->view.asleep) { AgentRest(s->agent); restTick(&s->body); }
+            else thinkStep(s);
         }
 
-        if (dragCat == 0)
-        {
-            float mdx = mouse.x - pressPos.x, mdy = mouse.y - pressPos.y;
-            if (mdx * mdx + mdy * mdy > DRAG_CLICK_DIST * DRAG_CLICK_DIST)
-            {
-                if (!dragMoved) AgentNeuromodPulse(agent, 0.0f, 0.0f, 0.5f);
-                dragMoved = true;
-            }
-            int tx, ty;
-            if (mouseToTile(mouse, &tx, &ty) && world->tiles[ty][tx] != TILE_OBSTACLE)
-            {
-                body.x = tx; body.y = ty;
-                view.x = (mouse.x - GRID_ORIGIN_X - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
-                view.y = (mouse.y - GRID_ORIGIN_Y - WORLD_TILE_PX * 0.5f) / WORLD_TILE_PX;
-            }
-        }
-        else if (dragItem >= 0)
-        {
-            int tx, ty;
-            if (mouseToTile(mouse, &tx, &ty)) { items[dragItem].x = tx; items[dragItem].y = ty; }
-        }
-
-        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
-        {
-            if (dragCat == 0 && !dragMoved)
-            {
-                MoodPet(&view);
-                ParticleHeart(catCenterX(&view), catCenterY(&view) - 10.0f);
-                NetworkApplyReward(&agent->net, PET_REWARD);
-                AgentNeuromodPulse(agent, 0.3f, 0.4f, 0.0f);
-                body.social = 0.0f;
-                body.bond += OXYTOCIN_PET;
-                if (body.bond > 1.0f) body.bond = 1.0f;
-            }
-            dragCat = -1; dragItem = -1;
-        }
-
-        if (++frame >= SIM_FRAME_INTERVAL)
-        {
-            frame = 0;
-            if (dragCat == 0)
-            {
-                AgentCarried(agent, body.bond);
-            }
-            else if (view.asleep)
-            {
-                AgentRest(agent);
-                restTick(&body);
-            }
-            else
-            {
-                int before = body.foodEaten;
-                int px = body.x, py = body.y;
-
-                CatSenses senses = { 0 };
-                int senseDist;
-                int si = nearestSensibleItem(items, itemCount, body.x, body.y, &senseDist);
-                if (si >= 0)
-                {
-                    float prox = 1.0f - (float)senseDist / (SENSE_RANGE + 1);
-                    switch (itemMaterial(items[si].type))
-                    {
-                        case MAT_SOFT: senses.soft = prox; break;
-                        case MAT_HARD: senses.hard = prox; break;
-                        default: senses.wet = prox; break;
-                    }
-                    senses.novelty = (1.0f - familiarity[items[si].type]) * prox;
-                    senses.dx = items[si].x - body.x;
-                    senses.dy = items[si].y - body.y;
-                    familiarity[items[si].type] += FAMILIARITY_RATE;
-                    if (familiarity[items[si].type] > 1.0f) familiarity[items[si].type] = 1.0f;
-                    view.curiosity = senses.novelty;
-                    if (senses.novelty > NOVELTY_ALERT) { view.mood = EMOTION_CURIOUS; view.moodHold = 1.2f; }
-                }
-
-                int playerTileX = -1, playerTileY = -1;
-                if (dragCat < 0)
-                {
-                    int ptx, pty;
-                    if (mouseToTile(mouse, &ptx, &pty)) { playerTileX = ptx; playerTileY = pty; }
-                }
-
-                float dayPhase = (float)(fmod(GetTime(), DAY_LENGTH) / DAY_LENGTH);
-                agent->circadian = 1.0f - fabsf(sinf(dayPhase * 2.0f * PI));
-
-                AgentAct(agent, world, &body, -1, -1, playerTileX, playerTileY, 0.0f, senses, items, itemCount, true, NULL, &voice);
-
-                if (agent->activeDrive == DRIVE_SOCIAL && playerTileX >= 0 &&
-                    abs(body.x - playerTileX) + abs(body.y - playerTileY) <= SOCIAL_NEAR_DIST)
-                {
-                    body.social -= SOCIAL_RELIEF;
-                    if (body.social < 0.0f) body.social = 0.0f;
-                    body.bond += OXYTOCIN_NEAR;
-                    if (body.bond > 1.0f) body.bond = 1.0f;
-                    AgentNeuromodPulse(agent, 0.0f, 0.15f, 0.0f);
-                }
-
-                body.fatigue += FATIGUE_RATE;
-                if (body.fatigue > 1.0f) body.fatigue = 1.0f;
-                body.scratchUrge += SCRATCH_RATE;
-                if (body.scratchUrge > 1.0f) body.scratchUrge = 1.0f;
-                body.bladder += BLADDER_RATE;
-                if (body.bladder > 1.0f) body.bladder = 1.0f;
-                body.boredom += BOREDOM_RATE;
-                if (body.boredom > 1.0f) body.boredom = 1.0f;
-                body.grime += GRIME_RATE;
-                if (body.grime > 1.0f) body.grime = 1.0f;
-                body.social += SOCIAL_RATE;
-                if (body.social > 1.0f) body.social = 1.0f;
-
-                if (agent->activeDrive == DRIVE_SCRATCH && adjacentToItem(items, itemCount, ITEM_POST, body.x, body.y))
-                {
-                    body.scratchUrge = 0.0f;
-                    view.mood = EMOTION_HAPPY;
-                    view.moodHold = 1.2f;
-                    ParticleDust(catCenterX(&view), catCenterY(&view));
-                    AgentReinforcePlace(agent, DRIVE_SCRATCH, body.x, body.y);
-                }
-
-                if (agent->activeDrive == DRIVE_BLADDER && onItemTile(items, itemCount, ITEM_LITTER, body.x, body.y))
-                {
-                    body.bladder = 0.0f;
-                    body.grime += GRIME_ON_EVENT;
-                    if (body.grime > 1.0f) body.grime = 1.0f;
-                    ParticleDust(catCenterX(&view), catCenterY(&view));
-                    AgentReinforcePlace(agent, DRIVE_BLADDER, body.x, body.y);
-                    AgentNeuromodPulse(agent, 0.0f, 0.3f, 0.0f);
-                }
-                else if (body.bladder >= 1.0f)
-                {
-                    addStain(stains, &stainCount, body.x, body.y);
-                    body.bladder = 0.0f;
-                    AgentNeuromodPulse(agent, 0.0f, 0.0f, 0.2f);
-                }
-
-                if (stainAt(stains, stainCount, body.x, body.y))
-                {
-                    body.grime += STAIN_GRIME;
-                    if (body.grime > 1.0f) body.grime = 1.0f;
-                }
-
-                if (agent->activeDrive == DRIVE_PLAY)
-                {
-                    body.boredom -= BOREDOM_RELIEF;
-                    if (body.boredom < 0.0f) body.boredom = 0.0f;
-                }
-
-                if (agent->activeDrive == DRIVE_GROOM)
-                {
-                    body.grime -= GRIME_RELIEF;
-                    if (body.grime < 0.0f) body.grime = 0.0f;
-                    AgentNeuromodPulse(agent, 0.0f, 0.05f, 0.0f);
-                }
-
-                bool atBed = onItemTile(items, itemCount, ITEM_BED, body.x, body.y);
-                if (agent->activeDrive == DRIVE_FATIGUE && atBed && body.fatigue > SLEEP_FATIGUE && awakeTimer > MIN_AWAKE)
-                {
-                    view.asleep = true;
-                    napTimer = 0.0f;
-                    AgentReinforcePlace(agent, DRIVE_FATIGUE, body.x, body.y);
-                }
-                else if (body.fatigue >= EXHAUSTED_FATIGUE && awakeTimer > MIN_AWAKE)
-                {
-                    view.asleep = true;
-                    napTimer = 0.0f;
-                }
-
-                float cx = GRID_ORIGIN_X + body.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
-                float cy = GRID_ORIGIN_Y + body.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
-                if (body.foodEaten > before)
-                {
-                    ParticleCrumbs(cx, cy);
-                    body.grime += GRIME_ON_EVENT;
-                    if (body.grime > 1.0f) body.grime = 1.0f;
-                    for (int i = 0; i < itemCount; i++)
-                        if (items[i].type == ITEM_BOWL && items[i].x == body.x && items[i].y == body.y)
-                            { items[i].hasFood = false; items[i].refill = BOWL_REFILL; }
-                }
-                if (body.x != px || body.y != py)
-                    ParticleDust(cx, cy + WORLD_TILE_PX * 0.35f);
-            }
-        }
-
-        refillBowls(items, itemCount, dt);
-        if (dragCat != 0) ViewUpdate(&view, &body);
-        MoodUpdate(&view, agent, world, &body, -1, -1, dt);
-        updateSleep(&view, &body, &awakeTimer, &napTimer, dt);
-        if (view.stretch > 0.0f) { view.stretch -= dt * 2.5f; if (view.stretch < 0.0f) view.stretch = 0.0f; }
-        view.curiosity *= 0.95f;
-        for (int i = 0; i < ITEM_TYPE_COUNT; i++) familiarity[i] *= FAMILIARITY_DECAY;
+        refillBowls(s->items, s->itemCount, dt);
+        if (s->dragCat != 0) ViewUpdate(&s->view, &s->body);
+        MoodUpdate(&s->view, s->agent, s->world, &s->body, -1, -1, dt);
+        updateSleep(&s->view, &s->body, &s->awakeTimer, &s->napTimer, dt);
+        if (s->view.stretch > 0.0f) { s->view.stretch -= dt * 2.5f; if (s->view.stretch < 0.0f) s->view.stretch = 0.0f; }
+        s->view.curiosity *= 0.95f;
+        for (int i = 0; i < ITEM_TYPE_COUNT; i++) s->familiarity[i] *= FAMILIARITY_DECAY;
         ParticlesUpdate(dt);
 
-        RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, stains, stainCount, dragItem, showBrain, GetTime());
+        RenderScene(s->agent, &s->body, &s->view, &s->cat, s->voice, s->world, s->items, s->itemCount,
+                    s->stains, s->stainCount, s->dragItem, s->showBrain, GetTime());
     }
 
-    saveGame(agent, &genome, &body, view.pets, items, itemCount, familiarity);
-    PixelCatUnload(&cat);
-    free(agent); free(world);
+    saveGame(s->agent, &s->genome, &s->body, s->view.pets, s->items, s->itemCount, s->familiarity);
+    PixelCatUnload(&s->cat);
+    free(s->agent); free(s->world); free(s);
     CloseWindow();
     return 0;
 }
