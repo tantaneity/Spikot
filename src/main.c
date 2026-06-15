@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #define EXPORT_FLAG "--export"
-#define EXPORT_COUNT 8
+#define EXPORT_COUNT 2
 #define EXPORT_DIR "export"
 
 #define SNN_TEST_FLAG "--snn-test"
@@ -141,18 +141,33 @@ static int runAgentTest(void)
     return 0;
 }
 
+static const char *emotionName(CatEmotion emotion)
+{
+    switch (emotion)
+    {
+        case EMOTION_HAPPY: return "happy";
+        case EMOTION_CURIOUS: return "curious";
+        case EMOTION_SCARED: return "scared";
+        case EMOTION_HUNGRY: return "hungry";
+        default: return "content";
+    }
+}
+
 static int runExport(void)
 {
     SetTraceLogLevel(LOG_WARNING);
     for (int i = 0; i < EXPORT_COUNT; i++)
     {
         CatGenome genome = CatGenomeRandom(nextSeed());
-        Image image = CatRenderImage(genome);
-        ImageResizeNN(&image, CAT_CANVAS_SIZE * CAT_EXPORT_SCALE, CAT_CANVAS_SIZE * CAT_EXPORT_SCALE);
-        char path[128];
-        snprintf(path, sizeof(path), "%s/cat_%d_%u.png", EXPORT_DIR, i, genome.seed);
-        ExportImage(image, path);
-        UnloadImage(image);
+        for (int emotion = 0; emotion < EMOTION_COUNT; emotion++)
+        {
+            Image image = CatRenderImage(genome, (CatEmotion)emotion);
+            ImageResizeNN(&image, CAT_CANVAS_SIZE * CAT_EXPORT_SCALE, CAT_CANVAS_SIZE * CAT_EXPORT_SCALE);
+            char path[128];
+            snprintf(path, sizeof(path), "%s/cat_%d_%s.png", EXPORT_DIR, i, emotionName((CatEmotion)emotion));
+            ExportImage(image, path);
+            UnloadImage(image);
+        }
     }
     return 0;
 }
@@ -174,14 +189,33 @@ static void drawWorld(const World *world)
     }
 }
 
-static void drawCat(const PixelCat *cat, const World *world)
+static bool foodInSight(const World *world)
+{
+    float vision[64];
+    WorldVision(world, vision);
+    int size = WorldVisionSize();
+    for (int i = 0; i < size; i++)
+        if (vision[i] > 0.5f) return true;
+    return false;
+}
+
+static CatEmotion deriveEmotion(const CatAgent *agent, const World *world)
+{
+    if (agent->lastReward >= REWARD_FOOD * 0.5f) return EMOTION_HAPPY;
+    if (agent->lastReward <= REWARD_OBSTACLE * 0.5f) return EMOTION_SCARED;
+    if (world->hunger > 0.7f) return EMOTION_HUNGRY;
+    if (foodInSight(world)) return EMOTION_CURIOUS;
+    return EMOTION_CONTENT;
+}
+
+static void drawCat(const PixelCat *cat, const World *world, CatEmotion emotion)
 {
     Vector2 position = {
         (float)(GRID_ORIGIN_X + world->catX * WORLD_TILE_PX),
         (float)(GRID_ORIGIN_Y + world->catY * WORLD_TILE_PX)
     };
     float scale = (float)WORLD_TILE_PX / (float)CAT_CANVAS_SIZE;
-    PixelCatDraw(cat, position, scale);
+    PixelCatDraw(cat, position, scale, emotion);
 }
 
 static const char *actionName(CatAction action)
@@ -264,10 +298,12 @@ static void renderScene(const CatAgent *agent, const World *world, const PixelCa
 {
     int panelX = GRID_ORIGIN_X + WORLD_WIDTH * WORLD_TILE_PX + 32;
 
+    CatEmotion emotion = deriveEmotion(agent, world);
+
     BeginDrawing();
     ClearBackground(BACKGROUND_COLOR);
     drawWorld(world);
-    drawCat(cat, world);
+    drawCat(cat, world, emotion);
     drawHud(agent, world, reward);
     drawBrain(&agent->net, panelX);
     DrawFPS(WINDOW_WIDTH - 96, 16);
