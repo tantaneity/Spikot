@@ -513,8 +513,9 @@ static void drawModBar(int x, int y, int w, const char *label, float value, Colo
         DrawRectangleRounded((Rectangle){ bx, y, (int)(w * value), 9 }, 1.0f, 4, color);
 }
 
-static const char *feelingWord(float valence, float arousal)
+static const char *feelingWord(float valence, float arousal, float cortisol)
 {
+    if (cortisol > 0.55f) return "withdrawn";
     if (arousal > 0.5f) return valence > 0.1f ? "excited" : "stressed";
     if (valence > 0.25f) return "content";
     if (valence < -0.1f) return "glum";
@@ -524,7 +525,7 @@ static const char *feelingWord(float valence, float arousal)
 static void drawNeuromods(int x, int y, const Neuromods *mods)
 {
     char header[48];
-    snprintf(header, sizeof(header), "brain chemistry   -   feeling %s", feelingWord(mods->valence, mods->arousal));
+    snprintf(header, sizeof(header), "brain chemistry   -   feeling %s", feelingWord(mods->valence, mods->arousal, mods->cortisol));
     DrawText(header, x, y, 15, TEXT_DIM);
     y += 22;
     int w = 150;
@@ -534,8 +535,8 @@ static void drawNeuromods(int x, int y, const Neuromods *mods)
     drawModBar(x, y, w, "NE",  mods->noradrenaline, (Color){ 240, 110, 110, 255 }); y += 16;
     drawModBar(x, y, w, "ACh", mods->acetylcholine, (Color){ 110, 170, 255, 255 }); y += 20;
     char line[64];
-    snprintf(line, sizeof(line), "reward %.0f%%  calm %.0f%%  stress %.0f%%  focus %.0f%%",
-             mods->dopamine * 100.0f, mods->serotonin * 100.0f, mods->noradrenaline * 100.0f, mods->acetylcholine * 100.0f);
+    snprintf(line, sizeof(line), "reward %.0f%%  calm %.0f%%  stress %.0f%%  focus %.0f%%  cortisol %.0f%%",
+             mods->dopamine * 100.0f, mods->serotonin * 100.0f, mods->noradrenaline * 100.0f, mods->acetylcholine * 100.0f, mods->cortisol * 100.0f);
     DrawText(line, x, y, 11, TEXT_DIM);
     y += 15;
     snprintf(line, sizeof(line), "mood %+.2f   arousal %.2f", mods->valence, mods->arousal);

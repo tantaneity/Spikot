@@ -26,6 +26,7 @@ typedef struct {
     float acetylcholine;
     float valence;
     float arousal;
+    float cortisol;
 } Neuromods;
 
 typedef struct {

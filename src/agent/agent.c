@@ -135,7 +135,7 @@ static float randomUnit(uint32_t *state)
     return (nextRandom(state) >> 8) * (1.0f / 16777216.0f);
 }
 
-static DriveKind dominantDrive(const CatBody *body, CatSenses senses, float hungerDrive, float *outUrgency)
+static DriveKind dominantDrive(const CatBody *body, CatSenses senses, float hungerDrive, float cortisol, float *outUrgency)
 {
     DriveKind best = DRIVE_NONE;
     float bestU = 0.0f;
@@ -154,13 +154,14 @@ static DriveKind dominantDrive(const CatBody *body, CatSenses senses, float hung
     float bladderU = (body->bladder - DRIVE_BLADDER_GATE) / (1.0f - DRIVE_BLADDER_GATE);
     if (bladderU > bestU) { best = DRIVE_BLADDER; bestU = bladderU; }
 
-    float playU = 0.85f * (body->boredom - DRIVE_PLAY_GATE) / (1.0f - DRIVE_PLAY_GATE);
+    float comfort = 1.0f - cortisol;
+    float playU = comfort * 0.85f * (body->boredom - DRIVE_PLAY_GATE) / (1.0f - DRIVE_PLAY_GATE);
     if (playU > bestU) { best = DRIVE_PLAY; bestU = playU; }
 
-    float groomU = 0.85f * (body->grime - DRIVE_GROOM_GATE) / (1.0f - DRIVE_GROOM_GATE);
+    float groomU = comfort * 0.85f * (body->grime - DRIVE_GROOM_GATE) / (1.0f - DRIVE_GROOM_GATE);
     if (groomU > bestU) { best = DRIVE_GROOM; bestU = groomU; }
 
-    float socialU = (body->social - DRIVE_SOCIAL_GATE) / (1.0f - DRIVE_SOCIAL_GATE);
+    float socialU = comfort * (body->social - DRIVE_SOCIAL_GATE) / (1.0f - DRIVE_SOCIAL_GATE);
     if (socialU > bestU) { best = DRIVE_SOCIAL; bestU = socialU; }
 
     *outUrgency = bestU;
@@ -262,6 +263,7 @@ static void updateNeuromods(CatAgent *agent, const CatBody *body, CatSenses sens
     m->noradrenaline = clampf(m->noradrenaline, 0.0f, 1.0f);
     m->acetylcholine = clampf(m->acetylcholine, 0.0f, 1.0f);
 
+    m->cortisol += CORT_RATE * (m->noradrenaline - m->cortisol);
     m->valence = clampf(m->serotonin - 0.7f * needPressure + 0.3f * m->dopamine - 0.5f * threat, -1.0f, 1.0f);
     m->arousal = clampf(0.7f * m->noradrenaline + 0.3f * m->dopamine, 0.0f, 1.0f);
 }
@@ -341,7 +343,7 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
     }
 
     float urgency;
-    DriveKind drive = dominantDrive(body, senses, hungerDrive, &urgency);
+    DriveKind drive = dominantDrive(body, senses, hungerDrive, agent->mods.cortisol, &urgency);
     agent->activeDrive = drive;
     agent->exploring = false;
 
