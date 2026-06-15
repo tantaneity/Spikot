@@ -10,10 +10,13 @@ typedef struct {
     float lastReward;
     int actionSpikes[ACTION_COUNT];
     CatAction lastAction;
+    float lastVoice;
     uint32_t rng;
 } CatAgent;
 
 void AgentInit(CatAgent *agent, uint32_t seed);
-CatAction AgentAct(CatAgent *agent, World *world, float *outReward);
+CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
+                   int otherX, int otherY, float heard,
+                   float *outReward, float *outVoice);
 
 #endif
