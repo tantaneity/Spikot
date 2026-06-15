@@ -329,6 +329,14 @@ static void drawMeow(float cx, float topY)
     DrawRectangle((int)cx, (int)topY - 19, 2, 9, INK);
 }
 
+static void drawThought(float cx, float topY)
+{
+    Rectangle bubble = { cx - 10.0f, topY - 23.0f, 20.0f, 17.0f };
+    DrawRectangleRounded(bubble, 0.6f, 6, (Color){ 248, 244, 236, 245 });
+    DrawTriangle((Vector2){ cx - 4, topY - 6 }, (Vector2){ cx, topY + 1 }, (Vector2){ cx + 4, topY - 6 }, (Color){ 248, 244, 236, 245 });
+    DrawText("?", (int)cx - 3, (int)topY - 21, 16, INK);
+}
+
 static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *body,
                     float voice, float energy, double time)
 {
@@ -376,6 +384,7 @@ static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *bod
 
     if (view->asleep) drawZzz(centerX, centerY - drawSize * 0.35f, time);
     else if (voice > MEOW_THRESHOLD) drawMeow(centerX, centerY - drawSize * 0.42f + bob);
+    else if (view->curiosity > 0.4f) drawThought(centerX, centerY - drawSize * 0.42f + bob);
 }
 
 static void drawCatCard(int x, int y, const PixelCat *cat, const CatBody *body,

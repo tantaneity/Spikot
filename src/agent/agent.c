@@ -46,7 +46,8 @@ static float randomUnit(uint32_t *state)
 }
 
 static void encode(const World *world, const CatBody *body, int otherX, int otherY,
-                   float heard, int foodDx, int foodDy, float scentStrength, float *external)
+                   float heard, int foodDx, int foodDy, float scentStrength,
+                   CatSenses senses, float *external)
 {
     for (int i = 0; i < SNN_NEURON_COUNT; i++) external[i] = 0.0f;
 
@@ -81,6 +82,12 @@ static void encode(const World *world, const CatBody *body, int otherX, int othe
         external[scentBase + 2] = (foodDx < 0 ? -foodDx : 0) / dist * s;
         external[scentBase + 3] = (foodDx > 0 ? foodDx : 0) / dist * s;
     }
+
+    int senseBase = scentBase + BRAIN_SCENT_NEURONS;
+    external[senseBase + 0] = senses.soft * BRAIN_INPUT_DRIVE;
+    external[senseBase + 1] = senses.hard * BRAIN_INPUT_DRIVE;
+    external[senseBase + 2] = senses.wet * BRAIN_INPUT_DRIVE;
+    external[senseBase + 3] = senses.novelty * BRAIN_INPUT_DRIVE;
 }
 
 static void accumulateOutputSpikes(const Network *net, int *actionCounts, int *voiceCount)
@@ -127,7 +134,7 @@ void AgentInit(CatAgent *agent, uint32_t seed)
 }
 
 CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
-                   int otherX, int otherY, float heard, bool learn,
+                   int otherX, int otherY, float heard, CatSenses senses, bool learn,
                    float *outReward, float *outVoice)
 {
     int foodDx = 0, foodDy = 0;
@@ -137,7 +144,7 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
     float scent = smelled ? drive : 0.0f;
 
     float external[SNN_NEURON_COUNT];
-    encode(world, body, otherX, otherY, heard, foodDx, foodDy, scent, external);
+    encode(world, body, otherX, otherY, heard, foodDx, foodDy, scent, senses, external);
 
     memset(agent->actionSpikes, 0, sizeof(agent->actionSpikes));
     int voiceCount = 0;

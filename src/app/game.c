@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 #define SAVE_PATH "spikot.save"
-#define SAVE_MAGIC 0x53504B32u
+#define SAVE_MAGIC 0x53504B33u
 
 #define SIM_FRAME_INTERVAL 6
 #define SHOT_WARMUP_STEPS 400
@@ -34,7 +34,33 @@ static uint32_t nextSeed(void)
 
 static CatView viewAt(const CatBody *body)
 {
-    return (CatView){ (float)body->x, (float)body->y, false, EMOTION_CONTENT, 0.0f, 0, false, 0.0f };
+    return (CatView){ (float)body->x, (float)body->y, false, EMOTION_CONTENT, 0.0f, 0, false, 0.0f, 0.0f };
+}
+
+typedef enum { MAT_SOFT, MAT_HARD, MAT_WET } MaterialKind;
+
+static MaterialKind itemMaterial(ItemType type)
+{
+    switch (type)
+    {
+        case ITEM_BED:
+        case ITEM_RUG: return MAT_SOFT;
+        case ITEM_POST:
+        case ITEM_PLANT: return MAT_HARD;
+        default: return MAT_WET;
+    }
+}
+
+static int nearestSensibleItem(const RoomItem *items, int count, int bx, int by, int *outDist)
+{
+    int best = SENSE_RANGE + 1, idx = -1;
+    for (int i = 0; i < count; i++)
+    {
+        int d = abs(items[i].x - bx) + abs(items[i].y - by);
+        if (d <= SENSE_RANGE && d < best) { best = d; idx = i; }
+    }
+    *outDist = best;
+    return idx;
 }
 
 static int resetRoom(RoomItem *items)
@@ -120,7 +146,7 @@ static bool mouseToTile(Vector2 mouse, int *tx, int *ty)
 }
 
 static bool loadGame(CatAgent *agent, CatGenome *genome, CatBody *body,
-                     int *pets, RoomItem *items, int *itemCount)
+                     int *pets, RoomItem *items, int *itemCount, float *familiarity)
 {
     FILE *file = fopen(SAVE_PATH, "rb");
     if (!file) return false;
@@ -131,6 +157,7 @@ static bool loadGame(CatAgent *agent, CatGenome *genome, CatBody *body,
     if (ok) ok = fread(&agent->net, sizeof(agent->net), 1, file) == 1;
     if (ok) ok = fread(body, sizeof(*body), 1, file) == 1;
     if (ok) ok = fread(pets, sizeof(*pets), 1, file) == 1;
+    if (ok) ok = fread(familiarity, sizeof(float) * ITEM_TYPE_COUNT, 1, file) == 1;
     if (ok) ok = fread(itemCount, sizeof(*itemCount), 1, file) == 1;
     if (ok && (*itemCount < 0 || *itemCount > MAX_ITEMS)) ok = false;
     if (ok && *itemCount > 0) ok = fread(items, sizeof(RoomItem) * (*itemCount), 1, file) == 1;
@@ -140,7 +167,7 @@ static bool loadGame(CatAgent *agent, CatGenome *genome, CatBody *body,
 }
 
 static void saveGame(const CatAgent *agent, const CatGenome *genome, const CatBody *body,
-                     int pets, const RoomItem *items, int itemCount)
+                     int pets, const RoomItem *items, int itemCount, const float *familiarity)
 {
     FILE *file = fopen(SAVE_PATH, "wb");
     if (!file) return;
@@ -151,6 +178,7 @@ static void saveGame(const CatAgent *agent, const CatGenome *genome, const CatBo
     fwrite(&agent->net, sizeof(agent->net), 1, file);
     fwrite(body, sizeof(*body), 1, file);
     fwrite(&pets, sizeof(pets), 1, file);
+    fwrite(familiarity, sizeof(float) * ITEM_TYPE_COUNT, 1, file);
     fwrite(&itemCount, sizeof(itemCount), 1, file);
     if (itemCount > 0) fwrite(items, sizeof(RoomItem) * itemCount, 1, file);
 
@@ -181,7 +209,7 @@ int RunShot(void)
     {
         stampItems(world, items, itemCount);
         int before = body.foodEaten;
-        AgentAct(agent, world, &body, -1, -1, 0.0f, true, NULL, &voice);
+        AgentAct(agent, world, &body, -1, -1, 0.0f, (CatSenses){ 0 }, true, NULL, &voice);
         if (body.foodEaten > before)
             for (int i = 0; i < itemCount; i++)
                 if (items[i].type == ITEM_BOWL && items[i].x == body.x && items[i].y == body.y)
@@ -220,8 +248,9 @@ int RunGame(void)
     RoomItem items[MAX_ITEMS];
     int itemCount = 0;
     int savedPets = 0;
+    float familiarity[ITEM_TYPE_COUNT] = { 0 };
 
-    if (!loadGame(agent, &genome, &body, &savedPets, items, &itemCount))
+    if (!loadGame(agent, &genome, &body, &savedPets, items, &itemCount, familiarity))
     {
         AgentInit(agent, nextSeed());
         genome = CatGenomeRandom(nextSeed());
@@ -255,6 +284,7 @@ int RunGame(void)
             CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
             view = viewAt(&body);
             itemCount = resetRoom(items);
+            for (int i = 0; i < ITEM_TYPE_COUNT; i++) familiarity[i] = 0.0f;
             voice = 0.0f; awakeTimer = 0.0f; napTimer = 0.0f;
             dragCat = -1; dragItem = -1;
         }
@@ -338,7 +368,27 @@ int RunGame(void)
             {
                 int before = body.foodEaten;
                 int px = body.x, py = body.y;
-                AgentAct(agent, world, &body, -1, -1, 0.0f, true, NULL, &voice);
+
+                CatSenses senses = { 0 };
+                int senseDist;
+                int si = nearestSensibleItem(items, itemCount, body.x, body.y, &senseDist);
+                if (si >= 0)
+                {
+                    float prox = 1.0f - (float)senseDist / (SENSE_RANGE + 1);
+                    switch (itemMaterial(items[si].type))
+                    {
+                        case MAT_SOFT: senses.soft = prox; break;
+                        case MAT_HARD: senses.hard = prox; break;
+                        default: senses.wet = prox; break;
+                    }
+                    senses.novelty = (1.0f - familiarity[items[si].type]) * prox;
+                    familiarity[items[si].type] += FAMILIARITY_RATE;
+                    if (familiarity[items[si].type] > 1.0f) familiarity[items[si].type] = 1.0f;
+                    view.curiosity = senses.novelty;
+                    if (senses.novelty > NOVELTY_ALERT) { view.mood = EMOTION_CURIOUS; view.moodHold = 1.2f; }
+                }
+
+                AgentAct(agent, world, &body, -1, -1, 0.0f, senses, true, NULL, &voice);
 
                 float cx = GRID_ORIGIN_X + body.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
                 float cy = GRID_ORIGIN_Y + body.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
@@ -359,12 +409,14 @@ int RunGame(void)
         MoodUpdate(&view, agent, world, &body, -1, -1, dt);
         updateSleep(&view, &body, &awakeTimer, &napTimer, dt);
         if (view.stretch > 0.0f) { view.stretch -= dt * 2.5f; if (view.stretch < 0.0f) view.stretch = 0.0f; }
+        view.curiosity *= 0.95f;
+        for (int i = 0; i < ITEM_TYPE_COUNT; i++) familiarity[i] *= FAMILIARITY_DECAY;
         ParticlesUpdate(dt);
 
         RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, dragItem, showBrain, GetTime());
     }
 
-    saveGame(agent, &genome, &body, view.pets, items, itemCount);
+    saveGame(agent, &genome, &body, view.pets, items, itemCount, familiarity);
     PixelCatUnload(&cat);
     free(agent); free(world);
     CloseWindow();
