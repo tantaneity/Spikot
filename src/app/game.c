@@ -257,7 +257,7 @@ int RunGame(void)
             if (dragCat == 0 && !dragMoved)
             {
                 MoodPet(&view);
-                HeartsSpawn(catCenterX(&view), catCenterY(&view) - 10.0f);
+                ParticleHeart(catCenterX(&view), catCenterY(&view) - 10.0f);
                 NetworkApplyReward(&agent->net, PET_REWARD);
             }
             dragCat = -1; dragItem = -1;
@@ -278,11 +278,20 @@ int RunGame(void)
             else
             {
                 int before = body.foodEaten;
+                int px = body.x, py = body.y;
                 AgentAct(agent, world, &body, -1, -1, 0.0f, true, NULL, &voice);
+
+                float cx = GRID_ORIGIN_X + body.x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+                float cy = GRID_ORIGIN_Y + body.y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
                 if (body.foodEaten > before)
+                {
+                    ParticleCrumbs(cx, cy);
                     for (int i = 0; i < itemCount; i++)
                         if (items[i].type == ITEM_BOWL && items[i].x == body.x && items[i].y == body.y)
                             { items[i].hasFood = false; items[i].refill = BOWL_REFILL; }
+                }
+                if (body.x != px || body.y != py)
+                    ParticleDust(cx, cy + WORLD_TILE_PX * 0.35f);
             }
         }
 
@@ -290,7 +299,7 @@ int RunGame(void)
         if (dragCat != 0) ViewUpdate(&view, &body);
         MoodUpdate(&view, agent, world, &body, -1, -1, dt);
         updateSleep(&view, &body, &awakeTimer, &napTimer, dt);
-        HeartsUpdate(dt);
+        ParticlesUpdate(dt);
 
         RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, dragItem, showBrain, GetTime());
     }

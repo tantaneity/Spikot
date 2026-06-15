@@ -24,8 +24,10 @@ void MoodUpdate(CatView *view, const CatAgent *agent, const World *world,
                 const CatBody *body, int otherX, int otherY, float dt);
 void MoodPet(CatView *view);
 
-void HeartsSpawn(float x, float y);
-void HeartsUpdate(float dt);
+void ParticleHeart(float x, float y);
+void ParticleCrumbs(float x, float y);
+void ParticleDust(float x, float y);
+void ParticlesUpdate(float dt);
 
 typedef enum {
     ITEM_BOWL,

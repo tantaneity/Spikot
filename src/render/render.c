@@ -14,8 +14,7 @@
 #define MOOD_HOLD_HAPPY 1.0f
 #define MOOD_HOLD_SCARED 0.6f
 #define MOOD_HOLD_PET 1.6f
-#define MAX_HEARTS 32
-#define HEART_RISE 24.0f
+#define MAX_PARTICLES 96
 #define MOTE_COUNT 26
 
 #define BRAIN_VIS_COLS 32
@@ -44,36 +43,92 @@ static const Color PANEL_LINE = (Color){ 64, 62, 86, 255 };
 static const Color TEXT_DIM = (Color){ 162, 160, 180, 255 };
 static const Color ACCENT = (Color){ 255, 196, 90, 255 };
 
-typedef struct { float x, y, life; bool active; } Heart;
-static Heart g_hearts[MAX_HEARTS];
+typedef enum { P_HEART, P_DOT } PKind;
+typedef struct {
+    float x, y, vx, vy, grav, life, maxLife, size;
+    Color color;
+    PKind kind;
+    bool active;
+} Particle;
+static Particle g_particles[MAX_PARTICLES];
 
-void HeartsSpawn(float x, float y)
+static Particle *allocParticle(void)
 {
-    for (int i = 0; i < MAX_HEARTS; i++)
-        if (!g_hearts[i].active) { g_hearts[i] = (Heart){ x, y, 1.0f, true }; return; }
+    for (int i = 0; i < MAX_PARTICLES; i++)
+        if (!g_particles[i].active) return &g_particles[i];
+    return NULL;
 }
 
-void HeartsUpdate(float dt)
+static float randSpread(float range)
 {
-    for (int i = 0; i < MAX_HEARTS; i++)
-        if (g_hearts[i].active)
-        {
-            g_hearts[i].y -= HEART_RISE * dt;
-            g_hearts[i].life -= dt;
-            if (g_hearts[i].life <= 0.0f) g_hearts[i].active = false;
-        }
+    return ((float)GetRandomValue(-1000, 1000) / 1000.0f) * range;
 }
 
-static void drawHearts(void)
+void ParticleHeart(float x, float y)
 {
-    for (int i = 0; i < MAX_HEARTS; i++)
+    Particle *p = allocParticle();
+    if (!p) return;
+    *p = (Particle){ x, y, randSpread(6.0f), -26.0f, 0.0f, 1.0f, 1.0f, 3.2f,
+                     (Color){ 255, 120, 150, 255 }, P_HEART, true };
+}
+
+void ParticleCrumbs(float x, float y)
+{
+    for (int i = 0; i < 5; i++)
     {
-        if (!g_hearts[i].active) continue;
-        float x = g_hearts[i].x, y = g_hearts[i].y, a = g_hearts[i].life;
-        Color pink = (Color){ 255, 120, 150, (unsigned char)(a * 230.0f) };
-        DrawCircle((int)x - 3, (int)y, 3.2f, pink);
-        DrawCircle((int)x + 3, (int)y, 3.2f, pink);
-        DrawTriangle((Vector2){ x - 6, y + 1 }, (Vector2){ x, y + 8 }, (Vector2){ x + 6, y + 1 }, pink);
+        Particle *p = allocParticle();
+        if (!p) return;
+        *p = (Particle){ x, y - 4.0f, randSpread(34.0f), -randSpread(34.0f) - 20.0f, 150.0f,
+                         0.55f, 0.55f, (float)GetRandomValue(15, 26) / 10.0f,
+                         (Color){ 235, 150, 80, 255 }, P_DOT, true };
+    }
+}
+
+void ParticleDust(float x, float y)
+{
+    for (int i = 0; i < 3; i++)
+    {
+        Particle *p = allocParticle();
+        if (!p) return;
+        *p = (Particle){ x + randSpread(5.0f), y + 6.0f, randSpread(10.0f), -randSpread(6.0f) - 4.0f, 0.0f,
+                         0.4f, 0.4f, (float)GetRandomValue(15, 28) / 10.0f,
+                         (Color){ 180, 160, 140, 160 }, P_DOT, true };
+    }
+}
+
+void ParticlesUpdate(float dt)
+{
+    for (int i = 0; i < MAX_PARTICLES; i++)
+    {
+        Particle *p = &g_particles[i];
+        if (!p->active) continue;
+        p->vy += p->grav * dt;
+        p->x += p->vx * dt;
+        p->y += p->vy * dt;
+        p->life -= dt;
+        if (p->life <= 0.0f) p->active = false;
+    }
+}
+
+static void drawParticles(void)
+{
+    for (int i = 0; i < MAX_PARTICLES; i++)
+    {
+        Particle *p = &g_particles[i];
+        if (!p->active) continue;
+        float a = p->life / p->maxLife;
+        Color c = p->color;
+        c.a = (unsigned char)(c.a * a);
+        if (p->kind == P_HEART)
+        {
+            DrawCircle((int)p->x - 3, (int)p->y, p->size, c);
+            DrawCircle((int)p->x + 3, (int)p->y, p->size, c);
+            DrawTriangle((Vector2){ p->x - 6, p->y + 1 }, (Vector2){ p->x, p->y + 8 }, (Vector2){ p->x + 6, p->y + 1 }, c);
+        }
+        else
+        {
+            DrawCircle((int)p->x, (int)p->y, p->size, c);
+        }
     }
 }
 
@@ -165,7 +220,21 @@ static void drawRoom(const World *world)
 
     Rectangle inner = { ox + WORLD_TILE_PX, oy + WORLD_TILE_PX, ROOM_W - 2 * WORLD_TILE_PX, ROOM_H - 2 * WORLD_TILE_PX };
     DrawRectangleLinesEx(inner, 3, (Color){ 0, 0, 0, 60 });
-    DrawCircleGradient(ox + ROOM_W / 2, oy + ROOM_H / 2, ROOM_W * 0.5f, (Color){ 255, 240, 200, 22 }, BLANK);
+
+    int wx = ox + (WORLD_WIDTH / 2 - 3) * WORLD_TILE_PX;
+    int ww = 6 * WORLD_TILE_PX;
+    int wy = oy, wh = WORLD_TILE_PX;
+    float slant = 70.0f, beamLen = ROOM_H * 0.6f;
+    Color beam = (Color){ 255, 240, 195, 24 };
+    Vector2 tl = { wx + 6, wy + wh }, tr = { wx + ww - 6, wy + wh };
+    Vector2 bl = { wx + 6 + slant, wy + wh + beamLen }, br = { wx + ww - 6 + slant * 1.6f, wy + wh + beamLen };
+    DrawTriangle(tl, bl, br, beam);
+    DrawTriangle(tl, br, tr, beam);
+
+    DrawRectangle(wx - 3, wy - 2, ww + 6, wh + 5, (Color){ 92, 80, 68, 255 });
+    DrawRectangleGradientV(wx, wy, ww, wh, (Color){ 158, 206, 238, 255 }, (Color){ 116, 174, 216, 255 });
+    DrawRectangle(wx + ww / 2 - 1, wy, 2, wh, (Color){ 92, 80, 68, 255 });
+    DrawRectangle(wx, wy + wh / 2 - 1, ww, 2, (Color){ 92, 80, 68, 255 });
 }
 
 static void itemCenter(const RoomItem *item, float *cx, float *cy)
@@ -276,10 +345,11 @@ static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *bod
     else if (walking) texture = cat->walk[((int)(t * 8.0f)) & 1];
     else texture = cat->textures[view->mood];
 
+    float s = view->asleep ? drawSize * 0.86f : drawSize;
     Rectangle src = { 0.0f, 0.0f, (view->faceLeft ? -1.0f : 1.0f) * texture.width, (float)texture.height };
-    float offsetY = view->asleep ? drawSize * 0.12f : 0.0f;
-    Rectangle dest = { centerX, centerY + offsetY + bob, drawSize, drawSize };
-    Vector2 origin = { drawSize * 0.5f, drawSize * 0.5f };
+    float offsetY = view->asleep ? drawSize * 0.14f : 0.0f;
+    Rectangle dest = { centerX, centerY + offsetY + bob, s, s };
+    Vector2 origin = { s * 0.5f, s * 0.5f };
     DrawTexturePro(texture, src, dest, origin, tilt, WHITE);
 
     if (view->asleep) drawZzz(centerX, centerY - drawSize * 0.35f, time);
@@ -399,7 +469,7 @@ void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view
     drawRoom(world);
     drawItems(items, itemCount, heldItem, time);
     drawCat(cat, view, body, voice, catEnergy(agent), time);
-    drawHearts();
+    drawParticles();
 
     int y = GRID_ORIGIN_Y - 4;
     DrawText("Spikot", PANEL_X, y, 36, RAYWHITE); y += 44;
