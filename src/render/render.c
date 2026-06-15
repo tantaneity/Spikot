@@ -16,7 +16,6 @@
 #define MOOD_HOLD_PET 1.6f
 #define MAX_PARTICLES 96
 #define MOTE_COUNT 26
-#define DAY_LENGTH 90.0
 
 #define BRAIN_VIS_COLS 32
 #define BRAIN_VIS_CELL 13

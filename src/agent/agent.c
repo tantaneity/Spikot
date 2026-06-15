@@ -250,6 +250,8 @@ static void updateNeuromods(CatAgent *agent, const CatBody *body, CatSenses sens
     float arousalDrive = needPressure * 0.6f;
     if (novelty > arousalDrive) arousalDrive = novelty;
     if (threat > arousalDrive) arousalDrive = threat;
+    float circadian = agent->circadian * CIRCADIAN_AROUSAL;
+    if (circadian > arousalDrive) arousalDrive = circadian;
     m->noradrenaline += NE_RATE * (arousalDrive - m->noradrenaline);
     m->acetylcholine += ACH_RATE * ((0.4f + 0.6f * novelty + 0.3f * m->dopamine) - m->acetylcholine);
 
@@ -290,6 +292,7 @@ void AgentInit(CatAgent *agent, uint32_t seed)
     agent->rewardBaseline = 0.0f;
     agent->activeDrive = DRIVE_NONE;
     agent->exploring = false;
+    agent->circadian = 0.0f;
     agent->rng = seed ^ 0x5BD1E995u;
     if (agent->rng == 0u) agent->rng = 1u;
     memset(agent->actionSpikes, 0, sizeof(agent->actionSpikes));

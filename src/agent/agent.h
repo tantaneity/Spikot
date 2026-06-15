@@ -49,6 +49,7 @@ typedef struct {
     float rewardBaseline;
     DriveKind activeDrive;
     bool exploring;
+    float circadian;
     int wanderX;
     int wanderY;
     uint32_t rng;

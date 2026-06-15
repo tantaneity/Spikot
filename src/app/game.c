@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <math.h>
 
 #define SAVE_PATH "spikot.save"
 #define SAVE_MAGIC 0x53504B38u
@@ -434,6 +435,9 @@ int RunGame(void)
                     int ptx, pty;
                     if (mouseToTile(mouse, &ptx, &pty)) { playerTileX = ptx; playerTileY = pty; }
                 }
+
+                float dayPhase = (float)(fmod(GetTime(), DAY_LENGTH) / DAY_LENGTH);
+                agent->circadian = 1.0f - fabsf(sinf(dayPhase * 2.0f * PI));
 
                 AgentAct(agent, world, &body, -1, -1, playerTileX, playerTileY, 0.0f, senses, items, itemCount, true, NULL, &voice);
 
