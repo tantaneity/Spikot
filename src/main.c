@@ -35,7 +35,7 @@
 
 #define BRAIN_VIS_COLS 32
 #define BRAIN_VIS_CELL 14
-#define BRAIN_VIS_Y 372
+#define BRAIN_VIS_Y 432
 #define BRAIN_INPUT_END 54
 #define BRAIN_OUTPUT_BEGIN (SNN_NEURON_COUNT - ACTION_COUNT * BRAIN_OUTPUT_GROUP)
 
@@ -112,6 +112,7 @@ static int runAgentTest(void)
 
     int windowFood = 0;
     double windowReward = 0.0;
+    long windowVotes = 0;
 
     for (int step = 1; step <= AGENT_TEST_STEPS; step++)
     {
@@ -120,13 +121,17 @@ static int runAgentTest(void)
         AgentAct(agent, world, &reward);
         windowReward += reward;
         windowFood += (world->foodEaten - foodBefore);
+        for (int action = 0; action < ACTION_COUNT; action++)
+            windowVotes += agent->actionSpikes[action];
 
         if (step % AGENT_TEST_WINDOW == 0)
         {
-            printf("steps %5d   food eaten %3d   avg reward %+.4f\n",
-                   step, windowFood, windowReward / AGENT_TEST_WINDOW);
+            printf("steps %5d   food %3d   avg reward %+.4f   out spikes/step %.1f\n",
+                   step, windowFood, windowReward / AGENT_TEST_WINDOW,
+                   (double)windowVotes / AGENT_TEST_WINDOW);
             windowFood = 0;
             windowReward = 0.0;
+            windowVotes = 0;
         }
     }
 
@@ -283,6 +288,14 @@ static int runShot(void)
 
     float reward = 0.0f;
     for (int step = 0; step < SHOT_WARMUP_STEPS; step++) AgentAct(agent, world, &reward);
+
+    for (int attempt = 0; attempt < 64; attempt++)
+    {
+        AgentAct(agent, world, &reward);
+        int votes = 0;
+        for (int action = 0; action < ACTION_COUNT; action++) votes += agent->actionSpikes[action];
+        if (votes > 0) break;
+    }
 
     for (int frame = 0; frame < 8; frame++) renderScene(agent, world, &cat, reward);
     TakeScreenshot(SHOT_PATH);
