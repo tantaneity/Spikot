@@ -528,7 +528,8 @@ static void drawNeuromods(int x, int y, const Neuromods *mods)
     DrawText(header, x, y, 15, TEXT_DIM);
     y += 22;
     int w = 150;
-    drawModBar(x, y, w, "DA",  mods->dopamine,      (Color){ 255, 196, 90, 255 }); y += 16;
+    float da = mods->dopamine + mods->daPhasic;
+    drawModBar(x, y, w, "DA",  da > 1.0f ? 1.0f : da, (Color){ 255, 196, 90, 255 }); y += 16;
     drawModBar(x, y, w, "5HT", mods->serotonin,     (Color){ 120, 210, 130, 255 }); y += 16;
     drawModBar(x, y, w, "NE",  mods->noradrenaline, (Color){ 240, 110, 110, 255 }); y += 16;
     drawModBar(x, y, w, "ACh", mods->acetylcholine, (Color){ 110, 170, 255, 255 }); y += 20;

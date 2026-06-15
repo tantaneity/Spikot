@@ -20,6 +20,7 @@ typedef enum {
 
 typedef struct {
     float dopamine;
+    float daPhasic;
     float serotonin;
     float noradrenaline;
     float acetylcholine;

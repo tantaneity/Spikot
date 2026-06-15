@@ -81,6 +81,7 @@
 
 #define DA_GAIN 0.6f
 #define DA_DECAY 0.06f
+#define DA_ANTICIPATION 5.0f
 #define SERO_RATE 0.02f
 #define SERO_PULSE 0.35f
 #define NE_RATE 0.09f

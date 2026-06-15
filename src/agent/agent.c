@@ -233,7 +233,8 @@ static void accumulateOutputSpikes(const Network *net, int *actionCounts, int *v
         if (net->spiked[VOICE_BASE + n]) (*voiceCount)++;
 }
 
-static void updateNeuromods(CatAgent *agent, const CatBody *body, CatSenses senses, float reward, bool rewarded)
+static void updateNeuromods(CatAgent *agent, const CatBody *body, CatSenses senses,
+                            float reward, bool rewarded, float anticipation)
 {
     Neuromods *m = &agent->mods;
     float rpe = reward - agent->rewardBaseline;
@@ -245,6 +246,7 @@ static void updateNeuromods(CatAgent *agent, const CatBody *body, CatSenses sens
     float novelty = senses.novelty;
 
     m->dopamine += DA_GAIN * (rpe > 0.0f ? rpe : 0.0f) - DA_DECAY * m->dopamine;
+    m->daPhasic = anticipation;
     m->serotonin += SERO_RATE * ((1.0f - needPressure) - m->serotonin) + SERO_PULSE * (rewarded ? 1.0f : 0.0f);
 
     float arousalDrive = needPressure * 0.6f;
@@ -426,7 +428,14 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
         NetworkApplyReadoutReward(&agent->net, modulation);
     }
 
-    if (items) updateNeuromods(agent, body, senses, reward, rewarded);
+    float anticipation = 0.0f;
+    if (items && spatialIndex >= 0)
+    {
+        float vGain = SpatialValue(&agent->spatial, spatialIndex, body->x, body->y)
+                    - SpatialValue(&agent->spatial, spatialIndex, prevX, prevY);
+        if (vGain > 0.0f) anticipation = vGain * DA_ANTICIPATION;
+    }
+    if (items) updateNeuromods(agent, body, senses, reward, rewarded, anticipation);
 
     if (items)
     {
@@ -453,7 +462,7 @@ void AgentReinforcePlace(CatAgent *agent, DriveKind drive, int x, int y)
 
 void AgentResetMods(CatAgent *agent)
 {
-    agent->mods = (Neuromods){ 0.0f, 0.5f, 0.2f, 0.4f, 0.2f, 0.2f };
+    agent->mods = (Neuromods){ 0.0f, 0.0f, 0.5f, 0.2f, 0.4f, 0.2f, 0.2f };
 }
 
 void AgentNeuromodPulse(CatAgent *agent, float dopamine, float serotonin, float noradrenaline)
