@@ -20,7 +20,7 @@ typedef struct {
 
 Image CatRenderImage(CatGenome genome, CatEmotion emotion);
 PixelCat PixelCatCreate(CatGenome genome);
-void PixelCatDraw(const PixelCat *cat, Vector2 position, float scale, CatEmotion emotion);
+void PixelCatDraw(const PixelCat *cat, Vector2 position, float scale, CatEmotion emotion, bool flipX);
 void PixelCatUnload(PixelCat *cat);
 
 #endif

@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <math.h>
 
 #define EXPORT_FLAG "--export"
 #define EXPORT_COUNT 2
@@ -46,10 +47,27 @@
 #define CAT_A_SEED_OFFSET 101u
 #define CAT_B_SEED_OFFSET 202u
 
-static const Color TILE_EMPTY_COLOR = (Color){ 30, 30, 42, 255 };
-static const Color TILE_FOOD_COLOR = (Color){ 96, 204, 124, 255 };
-static const Color TILE_OBSTACLE_COLOR = (Color){ 66, 66, 84, 255 };
+#define MOVE_LERP 0.25f
+#define CAT_DRAW_SCALE 1.75f
+#define BOB_SPEED 5.0f
+#define BOB_AMP 1.6f
+#define MEOW_THRESHOLD 0.11f
+
+static const Color FLOOR_COLOR_A = (Color){ 70, 56, 52, 255 };
+static const Color FLOOR_COLOR_B = (Color){ 78, 63, 58, 255 };
+static const Color WALL_COLOR = (Color){ 120, 84, 60, 255 };
+static const Color WALL_TOP_COLOR = (Color){ 150, 110, 82, 255 };
+static const Color FISH_COLOR = (Color){ 240, 158, 78, 255 };
+static const Color FISH_TAIL_COLOR = (Color){ 224, 128, 60, 255 };
+static const Color SHADOW_COLOR = (Color){ 0, 0, 0, 70 };
 static const Color VOICE_COLOR = (Color){ 255, 196, 80, 255 };
+static const Color ROOM_BG_COLOR = (Color){ 38, 30, 34, 255 };
+
+typedef struct {
+    float x;
+    float y;
+    bool faceLeft;
+} CatView;
 
 static uint32_t xorshiftSeed(uint32_t *state)
 {
@@ -239,19 +257,40 @@ static const char *actionName(CatAction action)
     }
 }
 
+static void drawFish(int cx, int cy)
+{
+    DrawEllipse(cx, cy, 6.0f, 4.0f, FISH_COLOR);
+    DrawTriangle((Vector2){ cx + 4, cy },
+                 (Vector2){ cx + 10, cy + 4 },
+                 (Vector2){ cx + 10, cy - 4 }, FISH_TAIL_COLOR);
+    DrawCircle(cx - 3, cy - 1, 1.3f, (Color){ 36, 24, 24, 255 });
+}
+
 static void drawWorld(const World *world)
 {
+    DrawRectangle(GRID_ORIGIN_X - 6, GRID_ORIGIN_Y - 6,
+                  WORLD_WIDTH * WORLD_TILE_PX + 12, WORLD_HEIGHT * WORLD_TILE_PX + 12, ROOM_BG_COLOR);
+
     for (int y = 0; y < WORLD_HEIGHT; y++)
     {
         for (int x = 0; x < WORLD_WIDTH; x++)
         {
-            Color color = TILE_EMPTY_COLOR;
-            if (world->tiles[y][x] == TILE_FOOD) color = TILE_FOOD_COLOR;
-            else if (world->tiles[y][x] == TILE_OBSTACLE) color = TILE_OBSTACLE_COLOR;
-
             int px = GRID_ORIGIN_X + x * WORLD_TILE_PX;
             int py = GRID_ORIGIN_Y + y * WORLD_TILE_PX;
-            DrawRectangle(px, py, WORLD_TILE_PX - 1, WORLD_TILE_PX - 1, color);
+            TileType tile = world->tiles[y][x];
+
+            if (tile == TILE_OBSTACLE)
+            {
+                DrawRectangle(px, py, WORLD_TILE_PX, WORLD_TILE_PX, WALL_COLOR);
+                DrawRectangle(px, py, WORLD_TILE_PX, 4, WALL_TOP_COLOR);
+            }
+            else
+            {
+                Color floor = ((x + y) & 1) ? FLOOR_COLOR_A : FLOOR_COLOR_B;
+                DrawRectangle(px, py, WORLD_TILE_PX, WORLD_TILE_PX, floor);
+                if (tile == TILE_FOOD)
+                    drawFish(px + WORLD_TILE_PX / 2, py + WORLD_TILE_PX / 2);
+            }
         }
     }
 }
@@ -276,14 +315,39 @@ static CatEmotion deriveEmotion(const CatAgent *agent, const World *world,
     return EMOTION_CONTENT;
 }
 
-static void drawCat(const PixelCat *cat, const CatBody *body, CatEmotion emotion)
+static void viewUpdate(CatView *view, const CatBody *body)
 {
-    Vector2 position = {
-        (float)(GRID_ORIGIN_X + body->x * WORLD_TILE_PX),
-        (float)(GRID_ORIGIN_Y + body->y * WORLD_TILE_PX)
-    };
-    float scale = (float)WORLD_TILE_PX / (float)CAT_CANVAS_SIZE;
-    PixelCatDraw(cat, position, scale, emotion);
+    if (body->x < view->x - 0.05f) view->faceLeft = true;
+    else if (body->x > view->x + 0.05f) view->faceLeft = false;
+    view->x += (body->x - view->x) * MOVE_LERP;
+    view->y += (body->y - view->y) * MOVE_LERP;
+}
+
+static void drawMeow(float cx, float topY)
+{
+    Rectangle bubble = { cx - 12.0f, topY - 22.0f, 24.0f, 16.0f };
+    DrawRectangleRounded(bubble, 0.6f, 6, (Color){ 246, 240, 230, 235 });
+    DrawTriangle((Vector2){ cx - 4, topY - 6 },
+                 (Vector2){ cx, topY + 1 },
+                 (Vector2){ cx + 4, topY - 6 }, (Color){ 246, 240, 230, 235 });
+    Color ink = (Color){ 70, 56, 84, 255 };
+    DrawCircle((int)cx - 2, (int)topY - 11, 2.6f, ink);
+    DrawRectangle((int)cx, (int)topY - 19, 2, 9, ink);
+}
+
+static void drawCat(const PixelCat *cat, const CatView *view, CatEmotion emotion, float voice, double time)
+{
+    float drawSize = CAT_CANVAS_SIZE * CAT_DRAW_SCALE;
+    float centerX = GRID_ORIGIN_X + view->x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+    float centerY = GRID_ORIGIN_Y + view->y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+    float bob = sinf((float)time * BOB_SPEED + view->x * 1.7f) * BOB_AMP;
+
+    DrawEllipse((int)centerX, (int)(centerY + 8.0f), 9.0f, 3.5f, SHADOW_COLOR);
+
+    Vector2 position = { centerX - drawSize * 0.5f, centerY - drawSize * 0.5f - 3.0f + bob };
+    PixelCatDraw(cat, position, CAT_DRAW_SCALE, emotion, view->faceLeft);
+
+    if (voice > MEOW_THRESHOLD) drawMeow(centerX, centerY - drawSize * 0.5f);
 }
 
 static void drawVoiceBar(int x, int y, int width, float level, Color tint)
@@ -292,18 +356,21 @@ static void drawVoiceBar(int x, int y, int width, float level, Color tint)
     DrawRectangle(x, y, (int)(width * level), 10, tint);
 }
 
-static int drawCatStatus(int panelX, int y, const char *label, Color swatch,
-                         const CatAgent *agent, const CatBody *body, float voice)
+static int drawCatCard(int panelX, int y, const char *label, const PixelCat *cat,
+                       const CatBody *body, float voice, CatEmotion emotion)
 {
-    DrawRectangle(panelX, y + 2, 16, 16, swatch);
+    DrawRectangleRounded((Rectangle){ panelX, y, 300, 74 }, 0.12f, 6, (Color){ 46, 40, 46, 255 });
+    PixelCatDraw(cat, (Vector2){ panelX + 8, y + 9 }, 3.5f, emotion, false);
+
+    int textX = panelX + 72;
     char line[96];
-    snprintf(line, sizeof(line), "%s  food %d  hunger %.2f  %s",
-             label, body->foodEaten, body->hunger, actionName(agent->lastAction));
-    DrawText(line, panelX + 24, y, 18, LIGHTGRAY);
-    y += 24;
-    DrawText("voice", panelX + 24, y, 14, GRAY);
-    drawVoiceBar(panelX + 72, y, 160, voice, VOICE_COLOR);
-    return y + 22;
+    snprintf(line, sizeof(line), "cat %s", label);
+    DrawText(line, textX, y + 8, 20, RAYWHITE);
+    snprintf(line, sizeof(line), "%s   fish %d", emotionName(emotion), body->foodEaten);
+    DrawText(line, textX, y + 32, 16, (Color){ 200, 195, 190, 255 });
+    DrawText("voice", textX, y + 54, 14, GRAY);
+    drawVoiceBar(textX + 44, y + 54, 150, voice, VOICE_COLOR);
+    return y + 86;
 }
 
 static Color neuronColor(const Network *net, int index)
@@ -341,9 +408,9 @@ static void drawBrain(const Network *net, int originX, const char *label)
     }
 }
 
-static void renderScene(const CatAgent *agentA, const CatBody *bodyA, const PixelCat *catA, float voiceA,
-                        const CatAgent *agentB, const CatBody *bodyB, const PixelCat *catB, float voiceB,
-                        const World *world)
+static void renderScene(const CatAgent *agentA, const CatBody *bodyA, const CatView *viewA, const PixelCat *catA, float voiceA,
+                        const CatAgent *agentB, const CatBody *bodyB, const CatView *viewB, const PixelCat *catB, float voiceB,
+                        const World *world, bool showBrain, double time)
 {
     int panelX = GRID_ORIGIN_X + WORLD_WIDTH * WORLD_TILE_PX + 28;
 
@@ -353,18 +420,26 @@ static void renderScene(const CatAgent *agentA, const CatBody *bodyA, const Pixe
     BeginDrawing();
     ClearBackground(BACKGROUND_COLOR);
     drawWorld(world);
-    drawCat(catA, bodyA, emotionA);
-    drawCat(catB, bodyB, emotionB);
+    drawCat(catA, viewA, emotionA, voiceA, time);
+    drawCat(catB, viewB, emotionB, voiceB, time);
 
     int y = GRID_ORIGIN_Y;
-    DrawText(WINDOW_TITLE, panelX, y, 30, RAYWHITE); y += 40;
-    DrawText("two cats, two brains, talking", panelX, y, 15, GRAY); y += 22;
-    DrawText("r: reset   esc: quit", panelX, y, 15, GRAY); y += 26;
+    DrawText(WINDOW_TITLE, panelX, y, 30, RAYWHITE); y += 38;
+    DrawText("two cats, two spiking brains", panelX, y, 15, GRAY); y += 22;
+    DrawText(showBrain ? "b: hide brain    r: new cats    esc: quit"
+                       : "b: peek inside the brain    r: new cats    esc: quit",
+             panelX, y, 15, GRAY); y += 28;
 
-    y = drawCatStatus(panelX, y, "A", catA->genome.primary, agentA, bodyA, voiceA);
-    y = drawCatStatus(panelX, y, "B", catB->genome.primary, agentB, bodyB, voiceB);
-
-    drawBrain(&agentA->net, panelX, "cat A brain (blue in / orange out)");
+    if (showBrain)
+    {
+        drawBrain(&agentA->net, panelX, "cat A brain (blue in / orange out)");
+    }
+    else
+    {
+        y = drawCatCard(panelX, y, "A", catA, bodyA, voiceA, emotionA);
+        y += 12;
+        y = drawCatCard(panelX, y, "B", catB, bodyB, voiceB, emotionB);
+    }
 
     DrawFPS(WINDOW_WIDTH - 90, 12);
     EndDrawing();
@@ -399,8 +474,12 @@ static int runShot(void)
         voiceA = nva; voiceB = nvb;
     }
 
+    CatView viewA = { (float)bodyA.x, (float)bodyA.y, false };
+    CatView viewB = { (float)bodyB.x, (float)bodyB.y, false };
+
     for (int frame = 0; frame < 8; frame++)
-        renderScene(agentA, &bodyA, &catA, voiceA, agentB, &bodyB, &catB, voiceB, world);
+        renderScene(agentA, &bodyA, &viewA, &catA, voiceA,
+                    agentB, &bodyB, &viewB, &catB, voiceB, world, false, GetTime());
     TakeScreenshot(SHOT_PATH);
 
     PixelCatUnload(&catA);
@@ -447,6 +526,10 @@ int main(int argc, char **argv)
 
     float voiceA = 0.0f, voiceB = 0.0f;
     int frame = 0;
+    bool showBrain = false;
+
+    CatView viewA = { (float)bodyA.x, (float)bodyA.y, false };
+    CatView viewB = { (float)bodyB.x, (float)bodyB.y, false };
 
     while (!WindowShouldClose())
     {
@@ -457,8 +540,11 @@ int main(int argc, char **argv)
             WorldInit(world, nextSeed());
             CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
             CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
+            viewA = (CatView){ (float)bodyA.x, (float)bodyA.y, false };
+            viewB = (CatView){ (float)bodyB.x, (float)bodyB.y, false };
             voiceA = 0.0f; voiceB = 0.0f;
         }
+        if (IsKeyPressed(KEY_B)) showBrain = !showBrain;
 
         if (++frame >= SIM_FRAME_INTERVAL)
         {
@@ -469,7 +555,11 @@ int main(int argc, char **argv)
             voiceA = nva; voiceB = nvb;
         }
 
-        renderScene(agentA, &bodyA, &catA, voiceA, agentB, &bodyB, &catB, voiceB, world);
+        viewUpdate(&viewA, &bodyA);
+        viewUpdate(&viewB, &bodyB);
+
+        renderScene(agentA, &bodyA, &viewA, &catA, voiceA,
+                    agentB, &bodyB, &viewB, &catB, voiceB, world, showBrain, GetTime());
     }
 
     PixelCatUnload(&catA);

@@ -217,9 +217,12 @@ PixelCat PixelCatCreate(CatGenome genome)
     return cat;
 }
 
-void PixelCatDraw(const PixelCat *cat, Vector2 position, float scale, CatEmotion emotion)
+void PixelCatDraw(const PixelCat *cat, Vector2 position, float scale, CatEmotion emotion, bool flipX)
 {
-    DrawTextureEx(cat->textures[emotion], position, 0.0f, scale, WHITE);
+    Texture2D texture = cat->textures[emotion];
+    Rectangle source = { 0.0f, 0.0f, (flipX ? -1.0f : 1.0f) * (float)texture.width, (float)texture.height };
+    Rectangle dest = { position.x, position.y, texture.width * scale, texture.height * scale };
+    DrawTexturePro(texture, source, dest, (Vector2){ 0.0f, 0.0f }, 0.0f, WHITE);
 }
 
 void PixelCatUnload(PixelCat *cat)
