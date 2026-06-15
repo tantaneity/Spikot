@@ -16,6 +16,7 @@
 #define MOOD_HOLD_PET 1.6f
 #define MAX_PARTICLES 96
 #define MOTE_COUNT 26
+#define DAY_LENGTH 90.0
 
 #define BRAIN_VIS_COLS 32
 #define BRAIN_VIS_CELL 13
@@ -195,7 +196,9 @@ static void drawBackground(double time)
     }
 }
 
-static void drawRoom(const World *world)
+static unsigned char lerpU8(int a, int b, float t) { return (unsigned char)(a + (b - a) * t); }
+
+static void drawRoom(const World *world, float daylight)
 {
     int ox = GRID_ORIGIN_X, oy = GRID_ORIGIN_Y;
     DrawRectangle(ox - 8, oy - 8, ROOM_W + 16, ROOM_H + 16, (Color){ 30, 26, 30, 255 });
@@ -225,14 +228,21 @@ static void drawRoom(const World *world)
     int ww = 6 * WORLD_TILE_PX;
     int wy = oy, wh = WORLD_TILE_PX;
     float slant = 70.0f, beamLen = ROOM_H * 0.6f;
-    Color beam = (Color){ 255, 240, 195, 24 };
+    Color beam = (Color){ 255, 240, 195, (unsigned char)(28 * daylight) };
     Vector2 tl = { wx + 6, wy + wh }, tr = { wx + ww - 6, wy + wh };
     Vector2 bl = { wx + 6 + slant, wy + wh + beamLen }, br = { wx + ww - 6 + slant * 1.6f, wy + wh + beamLen };
     DrawTriangle(tl, bl, br, beam);
     DrawTriangle(tl, br, tr, beam);
 
     DrawRectangle(wx - 3, wy - 2, ww + 6, wh + 5, (Color){ 92, 80, 68, 255 });
-    DrawRectangleGradientV(wx, wy, ww, wh, (Color){ 158, 206, 238, 255 }, (Color){ 116, 174, 216, 255 });
+    Color sky = (Color){ lerpU8(28, 158, daylight), lerpU8(36, 206, daylight), lerpU8(66, 238, daylight), 255 };
+    DrawRectangle(wx, wy, ww, wh, sky);
+    if (daylight < 0.45f)
+    {
+        DrawCircle(wx + ww - 16, wy + wh / 2, 4.5f, (Color){ 235, 235, 210, 255 });
+        DrawCircle(wx + 14, wy + 6, 1.0f, (Color){ 255, 255, 240, 200 });
+        DrawCircle(wx + 34, wy + 13, 1.0f, (Color){ 255, 255, 240, 180 });
+    }
     DrawRectangle(wx + ww / 2 - 1, wy, 2, wh, (Color){ 92, 80, 68, 255 });
     DrawRectangle(wx, wy + wh / 2 - 1, ww, 2, (Color){ 92, 80, 68, 255 });
 }
@@ -464,12 +474,19 @@ void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view
                  float voice, const World *world, const RoomItem *items, int itemCount,
                  int heldItem, bool showBrain, double time)
 {
+    float phase = (float)(fmod(time, DAY_LENGTH) / DAY_LENGTH);
+    float daylight = 0.5f + 0.5f * sinf(phase * 2.0f * PI);
+
     BeginDrawing();
     drawBackground(time);
-    drawRoom(world);
+    drawRoom(world, daylight);
     drawItems(items, itemCount, heldItem, time);
     drawCat(cat, view, body, voice, catEnergy(agent), time);
     drawParticles();
+
+    if (daylight < 0.95f)
+        DrawRectangle(GRID_ORIGIN_X - 8, GRID_ORIGIN_Y - 8, ROOM_W + 16, ROOM_H + 16,
+                      (Color){ 22, 28, 64, (unsigned char)((1.0f - daylight) * 120.0f) });
 
     int y = GRID_ORIGIN_Y - 4;
     DrawText("Spikot", PANEL_X, y, 36, RAYWHITE); y += 44;
