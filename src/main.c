@@ -22,7 +22,7 @@
 #define SNN_TEST_INPUT_DRIVE 0.85f
 
 #define AGENT_TEST_FLAG "--agent-test"
-#define AGENT_TEST_STEPS 6000
+#define AGENT_TEST_STEPS 12000
 #define AGENT_TEST_WINDOW 1000
 
 #define SHOT_FLAG "--shot"
@@ -36,7 +36,7 @@
 #define BRAIN_VIS_COLS 32
 #define BRAIN_VIS_CELL 14
 #define BRAIN_VIS_Y 432
-#define BRAIN_INPUT_END 54
+#define BRAIN_INPUT_END SNN_INPUT_NEURONS
 #define BRAIN_OUTPUT_BEGIN (SNN_NEURON_COUNT - ACTION_COUNT * BRAIN_OUTPUT_GROUP)
 
 static const Color TILE_EMPTY_COLOR = (Color){ 30, 30, 42, 255 };
@@ -86,7 +86,8 @@ static int runSnnTest(void)
             if ((xorshiftSeed(&state) >> 8) * (1.0f / 16777216.0f) < SNN_TEST_INPUT_PROB)
                 external[j] = SNN_TEST_INPUT_DRIVE;
 
-        NetworkStep(network, external, 1.0f);
+        NetworkStep(network, external);
+        NetworkApplyReward(network, 1.0f);
         int spikes = NetworkSpikeCount(network);
         totalSpikes += spikes;
         if (tick % SNN_TEST_REPORT_EVERY == 0) printf("tick %4d   spikes %3d\n", tick, spikes);
