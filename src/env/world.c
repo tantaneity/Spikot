@@ -25,8 +25,7 @@ static void spawnOnEmpty(World *world, TileType type)
     {
         int x = randomIndex(&world->rng, WORLD_WIDTH);
         int y = randomIndex(&world->rng, WORLD_HEIGHT);
-        bool isCat = (x == world->catX && y == world->catY);
-        if (!isCat && world->tiles[y][x] == TILE_EMPTY)
+        if (world->tiles[y][x] == TILE_EMPTY)
         {
             world->tiles[y][x] = type;
             return;
@@ -38,10 +37,6 @@ void WorldInit(World *world, uint32_t seed)
 {
     if (seed == 0u) seed = DEFAULT_SEED;
     world->rng = seed;
-    world->catX = WORLD_WIDTH / 2;
-    world->catY = WORLD_HEIGHT / 2;
-    world->hunger = 0.0f;
-    world->foodEaten = 0;
 
     for (int y = 0; y < WORLD_HEIGHT; y++)
         for (int x = 0; x < WORLD_WIDTH; x++)
@@ -49,6 +44,14 @@ void WorldInit(World *world, uint32_t seed)
 
     for (int i = 0; i < WORLD_OBSTACLE_COUNT; i++) spawnOnEmpty(world, TILE_OBSTACLE);
     for (int i = 0; i < WORLD_FOOD_COUNT; i++) spawnOnEmpty(world, TILE_FOOD);
+}
+
+void CatBodyInit(CatBody *cat, int x, int y)
+{
+    cat->x = x;
+    cat->y = y;
+    cat->hunger = 0.0f;
+    cat->foodEaten = 0;
 }
 
 static void actionDelta(CatAction action, int *dx, int *dy)
@@ -70,30 +73,31 @@ static bool inBounds(int x, int y)
     return x >= 0 && x < WORLD_WIDTH && y >= 0 && y < WORLD_HEIGHT;
 }
 
-float WorldStep(World *world, CatAction action)
+float WorldStepCat(World *world, CatBody *cat, CatAction action, int blockX, int blockY)
 {
-    world->hunger += HUNGER_RATE;
-    if (world->hunger > 1.0f) world->hunger = 1.0f;
-
-    int dx, dy;
-    actionDelta(action, &dx, &dy);
-    int targetX = world->catX + dx;
-    int targetY = world->catY + dy;
+    cat->hunger += HUNGER_RATE;
+    if (cat->hunger > 1.0f) cat->hunger = 1.0f;
 
     if (action == ACTION_STAY) return REWARD_STEP;
 
-    if (!inBounds(targetX, targetY) || world->tiles[targetY][targetX] == TILE_OBSTACLE)
+    int dx, dy;
+    actionDelta(action, &dx, &dy);
+    int targetX = cat->x + dx;
+    int targetY = cat->y + dy;
+
+    bool blockedByOther = (targetX == blockX && targetY == blockY);
+    if (!inBounds(targetX, targetY) || world->tiles[targetY][targetX] == TILE_OBSTACLE || blockedByOther)
         return REWARD_OBSTACLE;
 
-    world->catX = targetX;
-    world->catY = targetY;
+    cat->x = targetX;
+    cat->y = targetY;
 
     if (world->tiles[targetY][targetX] == TILE_FOOD)
     {
         world->tiles[targetY][targetX] = TILE_EMPTY;
-        world->foodEaten++;
-        world->hunger -= HUNGER_FOOD_RELIEF;
-        if (world->hunger < 0.0f) world->hunger = 0.0f;
+        cat->foodEaten++;
+        cat->hunger -= HUNGER_FOOD_RELIEF;
+        if (cat->hunger < 0.0f) cat->hunger = 0.0f;
         spawnOnEmpty(world, TILE_FOOD);
         return REWARD_FOOD;
     }
@@ -106,16 +110,17 @@ int WorldVisionSize(void)
     return VISION_DIAMETER * VISION_DIAMETER;
 }
 
-void WorldVision(const World *world, float *out)
+void WorldVisionFor(const World *world, const CatBody *cat, int otherX, int otherY, float *out)
 {
     int index = 0;
     for (int dy = -WORLD_VISION_RADIUS; dy <= WORLD_VISION_RADIUS; dy++)
     {
         for (int dx = -WORLD_VISION_RADIUS; dx <= WORLD_VISION_RADIUS; dx++)
         {
-            int x = world->catX + dx;
-            int y = world->catY + dy;
-            if (!inBounds(x, y) || world->tiles[y][x] == TILE_OBSTACLE)
+            int x = cat->x + dx;
+            int y = cat->y + dy;
+            bool isOther = (x == otherX && y == otherY);
+            if (!inBounds(x, y) || world->tiles[y][x] == TILE_OBSTACLE || isOther)
                 out[index] = -1.0f;
             else if (world->tiles[y][x] == TILE_FOOD)
                 out[index] = 1.0f;

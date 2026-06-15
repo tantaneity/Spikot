@@ -20,18 +20,22 @@ typedef enum {
 } CatAction;
 
 typedef struct {
-    TileType tiles[WORLD_HEIGHT][WORLD_WIDTH];
-    int catX;
-    int catY;
+    int x;
+    int y;
     float hunger;
     int foodEaten;
+} CatBody;
+
+typedef struct {
+    TileType tiles[WORLD_HEIGHT][WORLD_WIDTH];
     uint32_t rng;
 } World;
 
 void WorldInit(World *world, uint32_t seed);
-float WorldStep(World *world, CatAction action);
+void CatBodyInit(CatBody *cat, int x, int y);
+float WorldStepCat(World *world, CatBody *cat, CatAction action, int blockX, int blockY);
 
 int WorldVisionSize(void);
-void WorldVision(const World *world, float *out);
+void WorldVisionFor(const World *world, const CatBody *cat, int otherX, int otherY, float *out);
 
 #endif
