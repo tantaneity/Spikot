@@ -460,6 +460,16 @@ void AgentReinforcePlace(CatAgent *agent, DriveKind drive, int x, int y)
         SpatialLearn(&agent->spatial, spatialIndex, x, y, x, y, 1.0f, true);
 }
 
+void AgentCarried(CatAgent *agent)
+{
+    /* ponytail: held cat feels but doesn't act - sustained tension, no SNN step */
+    Neuromods *m = &agent->mods;
+    m->noradrenaline = clampf(m->noradrenaline + CARRY_AROUSAL, 0.0f, 1.0f);
+    m->daPhasic = 0.0f;
+    m->valence = clampf(m->serotonin - CARRY_DISCOMFORT + 0.3f * m->dopamine, -1.0f, 1.0f);
+    m->arousal = clampf(0.7f * m->noradrenaline + 0.3f * m->dopamine, 0.0f, 1.0f);
+}
+
 void AgentResetMods(CatAgent *agent)
 {
     agent->mods = (Neuromods){ 0.0f, 0.0f, 0.5f, 0.2f, 0.4f, 0.2f, 0.2f };

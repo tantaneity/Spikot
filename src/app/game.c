@@ -396,7 +396,7 @@ int RunGame(void)
             frame = 0;
             if (dragCat == 0)
             {
-                /* carried: cat rests in hand */
+                AgentCarried(agent);
             }
             else if (view.asleep)
             {
