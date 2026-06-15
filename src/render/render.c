@@ -522,7 +522,7 @@ static const char *feelingWord(float valence, float arousal, float cortisol)
     return "calm";
 }
 
-static void drawNeuromods(int x, int y, const Neuromods *mods)
+static void drawNeuromods(int x, int y, const Neuromods *mods, float bond)
 {
     char header[48];
     snprintf(header, sizeof(header), "brain chemistry   -   feeling %s", feelingWord(mods->valence, mods->arousal, mods->cortisol));
@@ -539,7 +539,7 @@ static void drawNeuromods(int x, int y, const Neuromods *mods)
              mods->dopamine * 100.0f, mods->serotonin * 100.0f, mods->noradrenaline * 100.0f, mods->acetylcholine * 100.0f, mods->cortisol * 100.0f);
     DrawText(line, x, y, 11, TEXT_DIM);
     y += 15;
-    snprintf(line, sizeof(line), "mood %+.2f   arousal %.2f", mods->valence, mods->arousal);
+    snprintf(line, sizeof(line), "mood %+.2f   arousal %.2f   bond %.0f%%", mods->valence, mods->arousal, bond * 100.0f);
     DrawText(line, x, y, 12, TEXT_DIM);
 }
 
@@ -576,7 +576,7 @@ void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view
              PANEL_X, y, 14, TEXT_DIM); y += 26;
 
     drawCatCard(PANEL_X, y, cat, body, voice, view->mood, view->pets, activityName(agent, view));
-    drawNeuromods(PANEL_X, y + 92, &agent->mods);
+    drawNeuromods(PANEL_X, y + 92, &agent->mods, body->bond);
 
     if (showBrain) drawBrain(&agent->net, PANEL_X);
     else drawPalette(time);

@@ -30,6 +30,7 @@ typedef struct {
     float boredom;
     float grime;
     float social;
+    float bond;
     int foodEaten;
 } CatBody;
 

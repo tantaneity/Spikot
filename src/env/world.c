@@ -137,6 +137,7 @@ void CatBodyInit(CatBody *cat, int x, int y)
     cat->boredom = 0.0f;
     cat->grime = 0.0f;
     cat->social = 0.0f;
+    cat->bond = 0.0f;
     cat->foodEaten = 0;
 }
 

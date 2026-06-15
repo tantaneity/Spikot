@@ -73,7 +73,7 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
                    float *outReward, float *outVoice);
 void AgentReinforcePlace(CatAgent *agent, DriveKind drive, int x, int y);
 void AgentNeuromodPulse(CatAgent *agent, float dopamine, float serotonin, float noradrenaline);
-void AgentCarried(CatAgent *agent);
+void AgentCarried(CatAgent *agent, float bond);
 void AgentResetMods(CatAgent *agent);
 void AgentRest(CatAgent *agent);
 

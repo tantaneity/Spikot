@@ -13,7 +13,7 @@
 #include <math.h>
 
 #define SAVE_PATH "spikot.save"
-#define SAVE_MAGIC 0x53504B38u
+#define SAVE_MAGIC 0x53504B39u
 
 #define SIM_FRAME_INTERVAL 6
 #define SHOT_WARMUP_STEPS 400
@@ -387,6 +387,8 @@ int RunGame(void)
                 NetworkApplyReward(&agent->net, PET_REWARD);
                 AgentNeuromodPulse(agent, 0.3f, 0.4f, 0.0f);
                 body.social = 0.0f;
+                body.bond += OXYTOCIN_PET;
+                if (body.bond > 1.0f) body.bond = 1.0f;
             }
             dragCat = -1; dragItem = -1;
         }
@@ -396,7 +398,7 @@ int RunGame(void)
             frame = 0;
             if (dragCat == 0)
             {
-                AgentCarried(agent);
+                AgentCarried(agent, body.bond);
             }
             else if (view.asleep)
             {
@@ -446,6 +448,8 @@ int RunGame(void)
                 {
                     body.social -= SOCIAL_RELIEF;
                     if (body.social < 0.0f) body.social = 0.0f;
+                    body.bond += OXYTOCIN_NEAR;
+                    if (body.bond > 1.0f) body.bond = 1.0f;
                     AgentNeuromodPulse(agent, 0.0f, 0.15f, 0.0f);
                 }
 
