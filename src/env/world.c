@@ -33,6 +33,28 @@ static void spawnOnEmpty(World *world, TileType type)
     }
 }
 
+static void wallVertical(World *world, int x, int y0, int y1, int gapY)
+{
+    for (int y = y0; y <= y1; y++)
+        if (y < gapY || y >= gapY + WORLD_DOORWAY)
+            world->tiles[y][x] = TILE_OBSTACLE;
+}
+
+static void wallHorizontal(World *world, int y, int x0, int x1, int gapX)
+{
+    for (int x = x0; x <= x1; x++)
+        if (x < gapX || x >= gapX + WORLD_DOORWAY)
+            world->tiles[y][x] = TILE_OBSTACLE;
+}
+
+static void clearArea(World *world, int cx, int cy, int radius)
+{
+    for (int y = cy - radius; y <= cy + radius; y++)
+        for (int x = cx - radius; x <= cx + radius; x++)
+            if (x >= 0 && x < WORLD_WIDTH && y >= 0 && y < WORLD_HEIGHT)
+                world->tiles[y][x] = TILE_EMPTY;
+}
+
 void WorldInit(World *world, uint32_t seed)
 {
     if (seed == 0u) seed = DEFAULT_SEED;
@@ -42,8 +64,23 @@ void WorldInit(World *world, uint32_t seed)
         for (int x = 0; x < WORLD_WIDTH; x++)
             world->tiles[y][x] = TILE_EMPTY;
 
-    for (int i = 0; i < WORLD_OBSTACLE_COUNT; i++) spawnOnEmpty(world, TILE_OBSTACLE);
+    wallHorizontal(world, 0, 0, WORLD_WIDTH - 1, -1);
+    wallHorizontal(world, WORLD_HEIGHT - 1, 0, WORLD_WIDTH - 1, -1);
+    wallVertical(world, 0, 0, WORLD_HEIGHT - 1, -1);
+    wallVertical(world, WORLD_WIDTH - 1, 0, WORLD_HEIGHT - 1, -1);
+
+    wallVertical(world, 11, 1, WORLD_HEIGHT - 2, 16);
+    wallVertical(world, 21, 1, WORLD_HEIGHT - 2, 7);
+    wallHorizontal(world, 11, 1, WORLD_WIDTH - 2, 6);
+    wallHorizontal(world, 22, 1, WORLD_WIDTH - 2, 26);
+
+    clearArea(world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 3);
+
+    for (int i = 0; i < WORLD_CLUTTER_COUNT; i++) spawnOnEmpty(world, TILE_OBSTACLE);
     for (int i = 0; i < WORLD_FOOD_COUNT; i++) spawnOnEmpty(world, TILE_FOOD);
+
+    world->tiles[WORLD_HEIGHT / 2][WORLD_WIDTH / 2 - 3] = TILE_EMPTY;
+    world->tiles[WORLD_HEIGHT / 2][WORLD_WIDTH / 2 + 3] = TILE_EMPTY;
 }
 
 void CatBodyInit(CatBody *cat, int x, int y)
