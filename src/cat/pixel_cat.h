@@ -4,14 +4,23 @@
 #include "raylib.h"
 #include "cat/genome.h"
 
+typedef enum {
+    EMOTION_CONTENT,
+    EMOTION_HAPPY,
+    EMOTION_CURIOUS,
+    EMOTION_SCARED,
+    EMOTION_HUNGRY,
+    EMOTION_COUNT
+} CatEmotion;
+
 typedef struct {
     CatGenome genome;
-    Texture2D texture;
+    Texture2D textures[EMOTION_COUNT];
 } PixelCat;
 
-Image CatRenderImage(CatGenome genome);
+Image CatRenderImage(CatGenome genome, CatEmotion emotion);
 PixelCat PixelCatCreate(CatGenome genome);
-void PixelCatDraw(const PixelCat *cat, Vector2 position, float scale);
+void PixelCatDraw(const PixelCat *cat, Vector2 position, float scale, CatEmotion emotion);
 void PixelCatUnload(PixelCat *cat);
 
 #endif
