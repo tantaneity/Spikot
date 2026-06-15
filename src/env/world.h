@@ -53,6 +53,11 @@ typedef struct {
 } RoomItem;
 
 typedef struct {
+    int x;
+    int y;
+} Stain;
+
+typedef struct {
     TileType tiles[WORLD_HEIGHT][WORLD_WIDTH];
     uint32_t rng;
 } World;

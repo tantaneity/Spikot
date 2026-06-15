@@ -35,6 +35,6 @@ int PalettePick(Vector2 mouse);
 
 void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view, const PixelCat *cat,
                  float voice, const World *world, const RoomItem *items, int itemCount,
-                 int heldItem, bool showBrain, double time);
+                 const Stain *stains, int stainCount, int heldItem, bool showBrain, double time);
 
 #endif

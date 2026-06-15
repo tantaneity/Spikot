@@ -337,6 +337,17 @@ static void drawThought(float cx, float topY)
     DrawText("?", (int)cx - 3, (int)topY - 21, 16, INK);
 }
 
+static void drawStains(const Stain *stains, int count)
+{
+    for (int i = 0; i < count; i++)
+    {
+        float cx = GRID_ORIGIN_X + stains[i].x * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+        float cy = GRID_ORIGIN_Y + stains[i].y * WORLD_TILE_PX + WORLD_TILE_PX * 0.5f;
+        DrawEllipse((int)cx, (int)cy, 9, 6, (Color){ 200, 190, 80, 90 });
+        DrawEllipse((int)cx, (int)cy, 5, 3, (Color){ 210, 200, 110, 120 });
+    }
+}
+
 static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *body,
                     float voice, float energy, double time)
 {
@@ -551,7 +562,7 @@ static float catEnergy(const CatAgent *agent)
 
 void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view, const PixelCat *cat,
                  float voice, const World *world, const RoomItem *items, int itemCount,
-                 int heldItem, bool showBrain, double time)
+                 const Stain *stains, int stainCount, int heldItem, bool showBrain, double time)
 {
     float phase = (float)(fmod(time, DAY_LENGTH) / DAY_LENGTH);
     float daylight = 0.5f + 0.5f * sinf(phase * 2.0f * PI);
@@ -560,6 +571,7 @@ void RenderScene(const CatAgent *agent, const CatBody *body, const CatView *view
     drawBackground(time);
     drawRoom(world, daylight);
     drawItems(items, itemCount, heldItem, time);
+    drawStains(stains, stainCount);
     drawCat(cat, view, body, voice, catEnergy(agent), time);
     drawParticles();
 

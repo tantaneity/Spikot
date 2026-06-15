@@ -23,6 +23,7 @@
 #define DRAG_CLICK_DIST 6.0f
 #define PET_REWARD 0.7f
 #define MAX_ITEMS 24
+#define MAX_STAINS 16
 #define BOWL_REFILL 3.0f
 
 #define MIN_AWAKE 8.0f
@@ -64,6 +65,25 @@ static bool adjacentToItem(const RoomItem *items, int count, ItemType type, int 
 {
     for (int i = 0; i < count; i++)
         if (items[i].type == type && abs(items[i].x - bx) + abs(items[i].y - by) <= 1) return true;
+    return false;
+}
+
+static void addStain(Stain *stains, int *count, int x, int y)
+{
+    for (int i = 0; i < *count; i++) if (stains[i].x == x && stains[i].y == y) return;
+    if (*count < MAX_STAINS) stains[(*count)++] = (Stain){ x, y };
+}
+
+static bool removeStainAt(Stain *stains, int *count, int x, int y)
+{
+    for (int i = 0; i < *count; i++)
+        if (stains[i].x == x && stains[i].y == y) { stains[i] = stains[--(*count)]; return true; }
+    return false;
+}
+
+static bool stainAt(const Stain *stains, int count, int x, int y)
+{
+    for (int i = 0; i < count; i++) if (stains[i].x == x && stains[i].y == y) return true;
     return false;
 }
 
@@ -255,7 +275,7 @@ int RunShot(void)
     stampItems(world, items, itemCount);
 
     for (int frame = 0; frame < 8; frame++)
-        RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, -1, false, GetTime());
+        RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, NULL, 0, -1, false, GetTime());
     TakeScreenshot(SHOT_PATH);
 
     PixelCatUnload(&cat);
@@ -281,6 +301,8 @@ int RunGame(void)
     RoomItem items[MAX_ITEMS];
     int itemCount = 0;
     int savedPets = 0;
+    Stain stains[MAX_STAINS];
+    int stainCount = 0;
     float familiarity[ITEM_TYPE_COUNT] = { 0 };
 
     if (!loadGame(agent, &genome, &body, &savedPets, items, &itemCount, familiarity))
@@ -319,6 +341,7 @@ int RunGame(void)
             itemCount = resetRoom(items);
             for (int i = 0; i < ITEM_TYPE_COUNT; i++) familiarity[i] = 0.0f;
             voice = 0.0f; awakeTimer = 0.0f; napTimer = 0.0f;
+            stainCount = 0;
             dragCat = -1; dragItem = -1;
         }
         if (IsKeyPressed(KEY_B)) showBrain = !showBrain;
@@ -345,13 +368,21 @@ int RunGame(void)
             }
             else
             {
-                int pick = PalettePick(mouse);
-                if (pick >= 0 && itemCount < MAX_ITEMS)
+                int tx, ty;
+                if (mouseToTile(mouse, &tx, &ty) && removeStainAt(stains, &stainCount, tx, ty))
                 {
-                    items[itemCount] = (RoomItem){ (ItemType)pick, WORLD_WIDTH / 2, WORLD_HEIGHT / 2,
-                                                   pick == ITEM_BOWL, 0.0f };
-                    dragItem = itemCount;
-                    itemCount++;
+                    /* wiped the floor clean */
+                }
+                else
+                {
+                    int pick = PalettePick(mouse);
+                    if (pick >= 0 && itemCount < MAX_ITEMS)
+                    {
+                        items[itemCount] = (RoomItem){ (ItemType)pick, WORLD_WIDTH / 2, WORLD_HEIGHT / 2,
+                                                       pick == ITEM_BOWL, 0.0f };
+                        dragItem = itemCount;
+                        itemCount++;
+                    }
                 }
             }
         }
@@ -484,6 +515,18 @@ int RunGame(void)
                     AgentReinforcePlace(agent, DRIVE_BLADDER, body.x, body.y);
                     AgentNeuromodPulse(agent, 0.0f, 0.3f, 0.0f);
                 }
+                else if (body.bladder >= 1.0f)
+                {
+                    addStain(stains, &stainCount, body.x, body.y);
+                    body.bladder = 0.0f;
+                    AgentNeuromodPulse(agent, 0.0f, 0.0f, 0.2f);
+                }
+
+                if (stainAt(stains, stainCount, body.x, body.y))
+                {
+                    body.grime += STAIN_GRIME;
+                    if (body.grime > 1.0f) body.grime = 1.0f;
+                }
 
                 if (agent->activeDrive == DRIVE_PLAY)
                 {
@@ -536,7 +579,7 @@ int RunGame(void)
         for (int i = 0; i < ITEM_TYPE_COUNT; i++) familiarity[i] *= FAMILIARITY_DECAY;
         ParticlesUpdate(dt);
 
-        RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, dragItem, showBrain, GetTime());
+        RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, stains, stainCount, dragItem, showBrain, GetTime());
     }
 
     saveGame(agent, &genome, &body, view.pets, items, itemCount, familiarity);

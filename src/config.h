@@ -122,6 +122,7 @@
 #define CORT_RATE 0.01f
 #define PAIN_CORTISOL 0.2f
 #define DANGER_WEIGHT 0.5f
+#define STAIN_GRIME 0.15f
 #define OXYTOCIN_PET 0.06f
 #define OXYTOCIN_NEAR 0.004f
 #define DRIVE_CURIOSITY_GATE 0.35f
