@@ -19,15 +19,25 @@
 #define SNN_TEST_REPORT_EVERY 100
 #define SNN_TEST_INPUT_NEURONS 24
 #define SNN_TEST_INPUT_PROB 0.6f
-#define SNN_TEST_INPUT_DRIVE 1.4f
+#define SNN_TEST_INPUT_DRIVE 0.85f
 
 #define AGENT_TEST_FLAG "--agent-test"
 #define AGENT_TEST_STEPS 6000
 #define AGENT_TEST_WINDOW 1000
 
+#define SHOT_FLAG "--shot"
+#define SHOT_WARMUP_STEPS 400
+#define SHOT_PATH "export/shot.png"
+
 #define GRID_ORIGIN_X 48
 #define GRID_ORIGIN_Y 48
 #define SIM_FRAME_INTERVAL 6
+
+#define BRAIN_VIS_COLS 32
+#define BRAIN_VIS_CELL 14
+#define BRAIN_VIS_Y 372
+#define BRAIN_INPUT_END 54
+#define BRAIN_OUTPUT_BEGIN (SNN_NEURON_COUNT - ACTION_COUNT * BRAIN_OUTPUT_GROUP)
 
 static const Color TILE_EMPTY_COLOR = (Color){ 30, 30, 42, 255 };
 static const Color TILE_FOOD_COLOR = (Color){ 96, 204, 124, 255 };
@@ -209,10 +219,86 @@ static void drawHud(const CatAgent *agent, const World *world, float reward)
     }
 }
 
+static Color neuronColor(const Network *net, int index)
+{
+    if (net->spiked[index]) return RAYWHITE;
+
+    float intensity = net->potential[index] / SNN_V_THRESHOLD;
+    if (intensity < 0.0f) intensity = 0.0f;
+    else if (intensity > 1.0f) intensity = 1.0f;
+
+    unsigned char r, g, b;
+    if (index < BRAIN_INPUT_END) { r = 70; g = 130; b = 255; }
+    else if (index >= BRAIN_OUTPUT_BEGIN) { r = 255; g = 150; b = 60; }
+    else { r = 80; g = 220; b = 200; }
+
+    unsigned char floor = 16;
+    return (Color){
+        (unsigned char)(floor + (r - floor) * intensity),
+        (unsigned char)(floor + (g - floor) * intensity),
+        (unsigned char)(floor + (b - floor) * intensity),
+        255
+    };
+}
+
+static void drawBrain(const Network *net, int originX)
+{
+    DrawText("brain (512 neurons)", originX, BRAIN_VIS_Y - 26, 16, GRAY);
+    for (int index = 0; index < SNN_NEURON_COUNT; index++)
+    {
+        int col = index % BRAIN_VIS_COLS;
+        int row = index / BRAIN_VIS_COLS;
+        int px = originX + col * BRAIN_VIS_CELL;
+        int py = BRAIN_VIS_Y + row * BRAIN_VIS_CELL;
+        DrawRectangle(px, py, BRAIN_VIS_CELL - 2, BRAIN_VIS_CELL - 2, neuronColor(net, index));
+    }
+}
+
+static void renderScene(const CatAgent *agent, const World *world, const PixelCat *cat, float reward)
+{
+    int panelX = GRID_ORIGIN_X + WORLD_WIDTH * WORLD_TILE_PX + 32;
+
+    BeginDrawing();
+    ClearBackground(BACKGROUND_COLOR);
+    drawWorld(world);
+    drawCat(cat, world);
+    drawHud(agent, world, reward);
+    drawBrain(&agent->net, panelX);
+    DrawFPS(WINDOW_WIDTH - 96, 16);
+    EndDrawing();
+}
+
+static int runShot(void)
+{
+    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
+    SetTargetFPS(TARGET_FPS);
+
+    CatAgent *agent = malloc(sizeof(CatAgent));
+    World *world = malloc(sizeof(World));
+    if (!agent || !world) { CloseWindow(); free(agent); free(world); return 1; }
+
+    AgentInit(agent, 4242u);
+    WorldInit(world, 777u);
+    PixelCat cat = PixelCatCreate(CatGenomeRandom(20260615u));
+
+    float reward = 0.0f;
+    for (int step = 0; step < SHOT_WARMUP_STEPS; step++) AgentAct(agent, world, &reward);
+
+    for (int frame = 0; frame < 8; frame++) renderScene(agent, world, &cat, reward);
+    TakeScreenshot(SHOT_PATH);
+
+    PixelCatUnload(&cat);
+    free(agent);
+    free(world);
+    CloseWindow();
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], SNN_TEST_FLAG) == 0) return runSnnTest();
     if (argc > 1 && strcmp(argv[1], AGENT_TEST_FLAG) == 0) return runAgentTest();
+    if (argc > 1 && strcmp(argv[1], SHOT_FLAG) == 0) return runShot();
     if (argc > 1 && strcmp(argv[1], EXPORT_FLAG) == 0)
     {
         InitWindow(1, 1, EXPORT_FLAG);
@@ -255,13 +341,7 @@ int main(int argc, char **argv)
             AgentAct(agent, world, &lastReward);
         }
 
-        BeginDrawing();
-        ClearBackground(BACKGROUND_COLOR);
-        drawWorld(world);
-        drawCat(&cat, world);
-        drawHud(agent, world, lastReward);
-        DrawFPS(WINDOW_WIDTH - 96, 16);
-        EndDrawing();
+        renderScene(agent, world, &cat, lastReward);
     }
 
     PixelCatUnload(&cat);

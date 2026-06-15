@@ -1,6 +1,7 @@
 .claude/
 build/
 export/
+shot.png
 *.exe
 *.o
 *.obj
