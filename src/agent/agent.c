@@ -85,13 +85,14 @@ void AgentInit(CatAgent *agent, uint32_t seed)
     agent->lastReward = REWARD_STEP;
     agent->lastAction = ACTION_STAY;
     agent->lastVoice = 0.0f;
+    agent->rewardBaseline = 0.0f;
     agent->rng = seed ^ 0x5BD1E995u;
     if (agent->rng == 0u) agent->rng = 1u;
     memset(agent->actionSpikes, 0, sizeof(agent->actionSpikes));
 }
 
 CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
-                   int otherX, int otherY, float heard,
+                   int otherX, int otherY, float heard, bool learn,
                    float *outReward, float *outVoice)
 {
     float external[SNN_NEURON_COUNT];
@@ -107,7 +108,13 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
 
     CatAction action = sampleAction(agent->actionSpikes, &agent->rng);
     float reward = WorldStepCat(world, body, action, otherX, otherY);
-    NetworkApplyReward(&agent->net, reward);
+
+    if (learn)
+    {
+        float advantage = reward - agent->rewardBaseline;
+        agent->rewardBaseline += LEARNING_BASELINE_RATE * (reward - agent->rewardBaseline);
+        NetworkApplyReward(&agent->net, advantage);
+    }
 
     agent->lastReward = reward;
     agent->lastAction = action;

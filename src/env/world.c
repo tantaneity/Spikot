@@ -1,5 +1,6 @@
 #include "env/world.h"
 #include <stdbool.h>
+#include <stdlib.h>
 
 #define DEFAULT_SEED 0x9E3779B9u
 #define VISION_DIAMETER (2 * WORLD_VISION_RADIUS + 1)
@@ -81,6 +82,25 @@ void WorldInit(World *world, uint32_t seed)
     clearArea(world, CAT_B_START_X, CAT_B_START_Y, 1);
 }
 
+void WorldInitOpen(World *world, uint32_t seed)
+{
+    if (seed == 0u) seed = DEFAULT_SEED;
+    world->rng = seed;
+
+    for (int y = 0; y < WORLD_HEIGHT; y++)
+        for (int x = 0; x < WORLD_WIDTH; x++)
+            world->tiles[y][x] = TILE_EMPTY;
+
+    wallHorizontal(world, 0, 0, WORLD_WIDTH - 1, -1);
+    wallHorizontal(world, WORLD_HEIGHT - 1, 0, WORLD_WIDTH - 1, -1);
+    wallVertical(world, 0, 0, WORLD_HEIGHT - 1, -1);
+    wallVertical(world, WORLD_WIDTH - 1, 0, WORLD_HEIGHT - 1, -1);
+
+    for (int i = 0; i < WORLD_FOOD_COUNT; i++) spawnOnEmpty(world, TILE_FOOD);
+
+    clearArea(world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 1);
+}
+
 void CatBodyInit(CatBody *cat, int x, int y)
 {
     cat->x = x;
@@ -108,6 +128,25 @@ static bool inBounds(int x, int y)
     return x >= 0 && x < WORLD_WIDTH && y >= 0 && y < WORLD_HEIGHT;
 }
 
+static int nearestVisibleFood(const World *world, int cx, int cy)
+{
+    int best = WORLD_VISION_RADIUS + 1;
+    for (int dy = -WORLD_VISION_RADIUS; dy <= WORLD_VISION_RADIUS; dy++)
+    {
+        for (int dx = -WORLD_VISION_RADIUS; dx <= WORLD_VISION_RADIUS; dx++)
+        {
+            int x = cx + dx;
+            int y = cy + dy;
+            if (inBounds(x, y) && world->tiles[y][x] == TILE_FOOD)
+            {
+                int distance = abs(dx) + abs(dy);
+                if (distance < best) best = distance;
+            }
+        }
+    }
+    return best;
+}
+
 float WorldStepCat(World *world, CatBody *cat, CatAction action, int blockX, int blockY)
 {
     cat->hunger += HUNGER_RATE;
@@ -124,8 +163,11 @@ float WorldStepCat(World *world, CatBody *cat, CatAction action, int blockX, int
     if (!inBounds(targetX, targetY) || world->tiles[targetY][targetX] == TILE_OBSTACLE || blockedByOther)
         return REWARD_OBSTACLE;
 
+    int distanceBefore = nearestVisibleFood(world, cat->x, cat->y);
     cat->x = targetX;
     cat->y = targetY;
+    int distanceAfter = nearestVisibleFood(world, cat->x, cat->y);
+    float shaped = REWARD_SHAPE_GAIN * (float)(distanceBefore - distanceAfter);
 
     if (world->tiles[targetY][targetX] == TILE_FOOD)
     {
@@ -134,10 +176,10 @@ float WorldStepCat(World *world, CatBody *cat, CatAction action, int blockX, int
         cat->hunger -= HUNGER_FOOD_RELIEF;
         if (cat->hunger < 0.0f) cat->hunger = 0.0f;
         spawnOnEmpty(world, TILE_FOOD);
-        return REWARD_FOOD;
+        return REWARD_FOOD + shaped;
     }
 
-    return REWARD_STEP;
+    return REWARD_STEP + shaped;
 }
 
 int WorldVisionSize(void)

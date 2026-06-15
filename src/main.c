@@ -25,6 +25,10 @@
 #define AGENT_TEST_STEPS 8000
 #define AGENT_TEST_WINDOW 1000
 
+#define LEARN_TEST_FLAG "--learn-test"
+#define LEARN_TEST_STEPS 30000
+#define LEARN_TEST_WINDOW 2000
+
 #define SHOT_FLAG "--shot"
 #define SHOT_WARMUP_STEPS 400
 #define SHOT_PATH "export/shot.png"
@@ -122,8 +126,8 @@ static int runAgentTest(void)
         int foodBeforeB = bodyB.foodEaten;
         float newVoiceA = 0.0f, newVoiceB = 0.0f;
 
-        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, NULL, &newVoiceA);
-        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, NULL, &newVoiceB);
+        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &newVoiceA);
+        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &newVoiceB);
         voiceA = newVoiceA;
         voiceB = newVoiceB;
 
@@ -143,6 +147,52 @@ static int runAgentTest(void)
     }
 
     free(agentA); free(agentB); free(world);
+    return 0;
+}
+
+static int runLearnTest(void)
+{
+    CatAgent *learner = malloc(sizeof(CatAgent));
+    CatAgent *control = malloc(sizeof(CatAgent));
+    World *learnerWorld = malloc(sizeof(World));
+    World *controlWorld = malloc(sizeof(World));
+    if (!learner || !control || !learnerWorld || !controlWorld)
+    {
+        fprintf(stderr, "alloc failed\n");
+        free(learner); free(control); free(learnerWorld); free(controlWorld);
+        return 1;
+    }
+
+    AgentInit(learner, 4242u);
+    AgentInit(control, 4242u);
+    WorldInitOpen(learnerWorld, 777u);
+    WorldInitOpen(controlWorld, 777u);
+
+    CatBody learnerBody, controlBody;
+    CatBodyInit(&learnerBody, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+    CatBodyInit(&controlBody, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+
+    int windowLearner = 0, windowControl = 0;
+
+    printf("open field, single cat, learner vs frozen control (same seed)\n");
+    for (int step = 1; step <= LEARN_TEST_STEPS; step++)
+    {
+        int learnerBefore = learnerBody.foodEaten;
+        int controlBefore = controlBody.foodEaten;
+        AgentAct(learner, learnerWorld, &learnerBody, -1, -1, 0.0f, true, NULL, NULL);
+        AgentAct(control, controlWorld, &controlBody, -1, -1, 0.0f, false, NULL, NULL);
+        windowLearner += learnerBody.foodEaten - learnerBefore;
+        windowControl += controlBody.foodEaten - controlBefore;
+
+        if (step % LEARN_TEST_WINDOW == 0)
+        {
+            printf("steps %6d   learner %3d   control %3d\n", step, windowLearner, windowControl);
+            windowLearner = 0;
+            windowControl = 0;
+        }
+    }
+
+    free(learner); free(control); free(learnerWorld); free(controlWorld);
     return 0;
 }
 
@@ -344,8 +394,8 @@ static int runShot(void)
     for (int step = 0; step < SHOT_WARMUP_STEPS; step++)
     {
         float nva = 0.0f, nvb = 0.0f;
-        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, NULL, &nva);
-        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, NULL, &nvb);
+        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
+        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
         voiceA = nva; voiceB = nvb;
     }
 
@@ -364,6 +414,7 @@ int main(int argc, char **argv)
 {
     if (argc > 1 && strcmp(argv[1], SNN_TEST_FLAG) == 0) return runSnnTest();
     if (argc > 1 && strcmp(argv[1], AGENT_TEST_FLAG) == 0) return runAgentTest();
+    if (argc > 1 && strcmp(argv[1], LEARN_TEST_FLAG) == 0) return runLearnTest();
     if (argc > 1 && strcmp(argv[1], SHOT_FLAG) == 0) return runShot();
     if (argc > 1 && strcmp(argv[1], EXPORT_FLAG) == 0)
     {
@@ -413,8 +464,8 @@ int main(int argc, char **argv)
         {
             frame = 0;
             float nva = 0.0f, nvb = 0.0f;
-            AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, NULL, &nva);
-            AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, NULL, &nvb);
+            AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
+            AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
             voiceA = nva; voiceB = nvb;
         }
 
