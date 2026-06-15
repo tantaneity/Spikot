@@ -223,6 +223,60 @@ int RunSpatialTest(void)
     return 0;
 }
 
+#define SLEEP_TEST_WARMUP 8
+#define SLEEP_TEST_MAX_STEPS 600
+#define SLEEP_TEST_REST_TICKS 300
+
+int RunSleepTest(void)
+{
+    CatAgent *agent = malloc(sizeof(CatAgent));
+    World *world = malloc(sizeof(World));
+    if (!agent || !world)
+    {
+        fprintf(stderr, "alloc failed\n");
+        free(agent); free(world);
+        return 1;
+    }
+
+    AgentInit(agent, 4242u);
+    WorldInitRoom(world, 777u);
+    RoomItem bowl = { ITEM_BOWL, 22, 16, true, 0.0f };
+    int startX = 6, startY = 6;
+
+    for (int ep = 1; ep <= SLEEP_TEST_WARMUP; ep++)
+    {
+        CatBody body;
+        CatBodyInit(&body, startX, startY);
+        for (int steps = 0; steps < SLEEP_TEST_MAX_STEPS; steps++)
+        {
+            body.hunger = 1.0f;
+            world->tiles[bowl.y][bowl.x] = TILE_FOOD;
+            int before = body.foodEaten;
+            AgentAct(agent, world, &body, -1, -1, 0.0f, (CatSenses){ 0 }, &bowl, 1, true, NULL, NULL);
+            if (body.foodEaten > before) break;
+        }
+    }
+
+    int probes[4][2] = { { startX, startY }, { 12, 9 }, { 17, 13 }, { 20, 15 } };
+    float before[4];
+    for (int i = 0; i < 4; i++)
+        before[i] = SpatialValue(&agent->spatial, 0, probes[i][0], probes[i][1]);
+
+    printf("hunger-value of the place map before vs after a sleep of pure replay (no new steps)\n");
+    for (int t = 0; t < SLEEP_TEST_REST_TICKS; t++) AgentRest(agent);
+
+    for (int i = 0; i < 4; i++)
+    {
+        float after = SpatialValue(&agent->spatial, 0, probes[i][0], probes[i][1]);
+        printf("(%2d,%2d) dist %2d   before %.4f   after %.4f   %s\n",
+               probes[i][0], probes[i][1], abs(probes[i][0] - bowl.x) + abs(probes[i][1] - bowl.y),
+               before[i], after, after > before[i] + 1e-4f ? "consolidated up" : "--");
+    }
+
+    free(agent); free(world);
+    return 0;
+}
+
 int RunExport(void)
 {
     InitWindow(1, 1, "spikot export");

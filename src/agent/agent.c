@@ -279,6 +279,8 @@ void AgentInit(CatAgent *agent, uint32_t seed)
     memset(agent->actionSpikes, 0, sizeof(agent->actionSpikes));
     SpatialInit(&agent->spatial);
     AgentResetMods(agent);
+    agent->traceHead = 0;
+    agent->traceCount = 0;
     agent->wanderX = WORLD_WIDTH / 2;
     agent->wanderY = WORLD_HEIGHT / 2;
 }
@@ -391,6 +393,13 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
 
     if (items) updateNeuromods(agent, body, senses, reward, rewarded);
 
+    if (items)
+    {
+        agent->trace[agent->traceHead] = (Experience){ body->x, body->y, spatialIndex, reward, rewarded };
+        agent->traceHead = (agent->traceHead + 1) % REPLAY_BUFFER;
+        if (agent->traceCount < REPLAY_BUFFER) agent->traceCount++;
+    }
+
     agent->lastReward = reward;
     agent->lastAction = action;
     agent->lastVoice = (float)voiceCount / (float)VOICE_MAX_SPIKES;
@@ -419,12 +428,33 @@ void AgentNeuromodPulse(CatAgent *agent, float dopamine, float serotonin, float 
     agent->mods.noradrenaline = clampf(agent->mods.noradrenaline + noradrenaline, 0.0f, 1.0f);
 }
 
+static const Experience *recentExperience(const CatAgent *agent, int stepsBack)
+{
+    int index = (agent->traceHead - 1 - stepsBack + 2 * REPLAY_BUFFER) % REPLAY_BUFFER;
+    return &agent->trace[index];
+}
+
+static void replayTrace(CatAgent *agent)
+{
+    for (int sweep = 0; sweep < REPLAY_SWEEPS_PER_REST; sweep++)
+        for (int j = 0; j + 1 < agent->traceCount; j++)
+        {
+            const Experience *cur = recentExperience(agent, j);
+            const Experience *prev = recentExperience(agent, j + 1);
+            if (cur->drive < 0) continue;
+            if (abs(cur->x - prev->x) + abs(cur->y - prev->y) != 1) continue;
+            SpatialLearn(&agent->spatial, cur->drive, prev->x, prev->y,
+                         cur->x, cur->y, cur->reward, cur->satisfied);
+        }
+}
+
 void AgentRest(CatAgent *agent)
 {
     for (int substep = 0; substep < BRAIN_SUBSTEPS; substep++)
         NetworkStep(&agent->net, NULL);
 
     NetworkApplyReward(&agent->net, SLEEP_CONSOLIDATE);
+    replayTrace(agent);
 
     Neuromods *m = &agent->mods;
     m->noradrenaline -= NE_SLEEP_DECAY * m->noradrenaline;

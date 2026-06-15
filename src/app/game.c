@@ -188,6 +188,8 @@ static bool loadGame(CatAgent *agent, CatGenome *genome, CatBody *body,
         agent->activeDrive = DRIVE_NONE;
         agent->rewardBaseline = 0.0f;
         AgentResetMods(agent);
+        agent->traceHead = 0;
+        agent->traceCount = 0;
         if (agent->rng == 0u) agent->rng = 0x5BD1E995u;
     }
     return ok;

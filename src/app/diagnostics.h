@@ -5,6 +5,7 @@ int RunSnnTest(void);
 int RunAgentTest(void);
 int RunLearnTest(void);
 int RunSpatialTest(void);
+int RunSleepTest(void);
 int RunExport(void);
 
 #endif

@@ -24,9 +24,20 @@ typedef struct {
 } Neuromods;
 
 typedef struct {
+    int x;
+    int y;
+    int drive;
+    float reward;
+    bool satisfied;
+} Experience;
+
+typedef struct {
     Network net;
     SpatialMemory spatial;
     Neuromods mods;
+    Experience trace[REPLAY_BUFFER];
+    int traceHead;
+    int traceCount;
     float lastReward;
     int actionSpikes[ACTION_COUNT];
     CatAction lastAction;
