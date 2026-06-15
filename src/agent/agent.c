@@ -88,12 +88,13 @@ CatAction AgentAct(CatAgent *agent, World *world, float *outReward)
     memset(agent->actionSpikes, 0, sizeof(agent->actionSpikes));
     for (int substep = 0; substep < BRAIN_SUBSTEPS; substep++)
     {
-        NetworkStep(&agent->net, external, agent->lastReward);
+        NetworkStep(&agent->net, external);
         accumulateOutputSpikes(&agent->net, agent->actionSpikes);
     }
 
     CatAction action = sampleAction(agent->actionSpikes, &agent->rng);
     float reward = WorldStep(world, action);
+    NetworkApplyReward(&agent->net, reward);
 
     agent->lastReward = reward;
     agent->lastAction = action;

@@ -61,6 +61,7 @@ void NetworkInit(Network *network, uint32_t seed)
     memset(network->spiked, 0, sizeof(network->spiked));
     memset(network->refractory, 0, sizeof(network->refractory));
     memset(network->current, 0, sizeof(network->current));
+    memset(network->eligibility, 0, sizeof(network->eligibility));
 
     for (int neuron = 0; neuron < N; neuron++)
         network->inhibitory[neuron] =
@@ -76,6 +77,35 @@ void NetworkInit(Network *network, uint32_t seed)
                 network->weights[pre][post] = randomUnit(&state) * SNN_WEIGHT_INIT_MAX;
             else
                 network->weights[pre][post] = 0.0f;
+        }
+    }
+
+    for (int post = 0; post < N; post++)
+    {
+        float incoming = 0.0f;
+        for (int pre = 0; pre < N; pre++) incoming += network->weights[pre][post];
+        network->homeostasisTarget[post] = incoming;
+    }
+}
+
+static void normalizeIncoming(Network *network)
+{
+    for (int post = 0; post < N; post++)
+    {
+        float target = network->homeostasisTarget[post];
+        if (target <= 0.0f) continue;
+
+        float incoming = 0.0f;
+        for (int pre = 0; pre < N; pre++) incoming += network->weights[pre][post];
+        if (incoming <= 0.0f) continue;
+
+        float scale = target / incoming;
+        for (int pre = 0; pre < N; pre++)
+        {
+            if (network->weights[pre][post] == 0.0f) continue;
+            float weight = network->weights[pre][post] * scale;
+            if (weight > SNN_WEIGHT_MAX) weight = SNN_WEIGHT_MAX;
+            network->weights[pre][post] = weight;
         }
     }
 }
@@ -95,7 +125,7 @@ static void accumulateCurrent(Network *network, const float *externalInput)
     }
 }
 
-static void applyStdp(Network *network, const bool *fired, float reward)
+static void accumulateEligibility(Network *network, const bool *fired)
 {
     for (int pre = 0; pre < N; pre++)
     {
@@ -103,21 +133,38 @@ static void applyStdp(Network *network, const bool *fired, float reward)
         bool preFired = fired[pre];
         for (int post = 0; post < N; post++)
         {
-            float weight = network->weights[pre][post];
-            if (weight == 0.0f) continue;
+            if (network->weights[pre][post] == 0.0f) continue;
 
             float potentiation = SNN_STDP_POTENTIATION * preTrace * (fired[post] ? 1.0f : 0.0f);
             float depression = SNN_STDP_DEPRESSION * network->trace[post] * (preFired ? 1.0f : 0.0f);
-            weight += (potentiation - depression) * reward;
+            network->eligibility[pre][post] =
+                network->eligibility[pre][post] * SNN_ELIGIBILITY_DECAY + (potentiation - depression);
+        }
+    }
+}
 
+void NetworkApplyReward(Network *network, float reward)
+{
+    if (reward == 0.0f) return;
+
+    for (int pre = 0; pre < N; pre++)
+    {
+        for (int post = 0; post < N; post++)
+        {
+            float weight = network->weights[pre][post];
+            if (weight == 0.0f) continue;
+
+            weight += SNN_LEARNING_RATE * reward * network->eligibility[pre][post];
             if (weight < 0.0f) weight = 0.0f;
             else if (weight > SNN_WEIGHT_MAX) weight = SNN_WEIGHT_MAX;
             network->weights[pre][post] = weight;
         }
     }
+
+    normalizeIncoming(network);
 }
 
-void NetworkStep(Network *network, const float *externalInput, float reward)
+void NetworkStep(Network *network, const float *externalInput)
 {
     accumulateCurrent(network, externalInput);
 
@@ -139,7 +186,7 @@ void NetworkStep(Network *network, const float *externalInput, float reward)
         network->trace[neuron] = network->trace[neuron] * SNN_TRACE_DECAY +
                                  (fired[neuron] ? 1.0f : 0.0f);
 
-    applyStdp(network, fired, reward);
+    accumulateEligibility(network, fired);
 
     memcpy(network->spiked, fired, sizeof(fired));
 }
