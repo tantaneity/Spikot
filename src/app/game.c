@@ -12,7 +12,7 @@
 #include <stdio.h>
 
 #define SAVE_PATH "spikot.save"
-#define SAVE_MAGIC 0x53504B37u
+#define SAVE_MAGIC 0x53504B38u
 
 #define SIM_FRAME_INTERVAL 6
 #define SHOT_WARMUP_STEPS 400
@@ -241,7 +241,7 @@ int RunShot(void)
     {
         stampItems(world, items, itemCount);
         int before = body.foodEaten;
-        AgentAct(agent, world, &body, -1, -1, 0.0f, (CatSenses){ 0 }, items, itemCount, true, NULL, &voice);
+        AgentAct(agent, world, &body, -1, -1, -1, -1, 0.0f, (CatSenses){ 0 }, items, itemCount, true, NULL, &voice);
         if (body.foodEaten > before)
             for (int i = 0; i < itemCount; i++)
                 if (items[i].type == ITEM_BOWL && items[i].x == body.x && items[i].y == body.y)
@@ -385,6 +385,7 @@ int RunGame(void)
                 ParticleHeart(catCenterX(&view), catCenterY(&view) - 10.0f);
                 NetworkApplyReward(&agent->net, PET_REWARD);
                 AgentNeuromodPulse(agent, 0.3f, 0.4f, 0.0f);
+                body.social = 0.0f;
             }
             dragCat = -1; dragItem = -1;
         }
@@ -427,7 +428,22 @@ int RunGame(void)
                     if (senses.novelty > NOVELTY_ALERT) { view.mood = EMOTION_CURIOUS; view.moodHold = 1.2f; }
                 }
 
-                AgentAct(agent, world, &body, -1, -1, 0.0f, senses, items, itemCount, true, NULL, &voice);
+                int playerTileX = -1, playerTileY = -1;
+                if (dragCat < 0)
+                {
+                    int ptx, pty;
+                    if (mouseToTile(mouse, &ptx, &pty)) { playerTileX = ptx; playerTileY = pty; }
+                }
+
+                AgentAct(agent, world, &body, -1, -1, playerTileX, playerTileY, 0.0f, senses, items, itemCount, true, NULL, &voice);
+
+                if (agent->activeDrive == DRIVE_SOCIAL && playerTileX >= 0 &&
+                    abs(body.x - playerTileX) + abs(body.y - playerTileY) <= SOCIAL_NEAR_DIST)
+                {
+                    body.social -= SOCIAL_RELIEF;
+                    if (body.social < 0.0f) body.social = 0.0f;
+                    AgentNeuromodPulse(agent, 0.0f, 0.15f, 0.0f);
+                }
 
                 body.fatigue += FATIGUE_RATE;
                 if (body.fatigue > 1.0f) body.fatigue = 1.0f;
@@ -439,6 +455,8 @@ int RunGame(void)
                 if (body.boredom > 1.0f) body.boredom = 1.0f;
                 body.grime += GRIME_RATE;
                 if (body.grime > 1.0f) body.grime = 1.0f;
+                body.social += SOCIAL_RATE;
+                if (body.social > 1.0f) body.social = 1.0f;
 
                 if (agent->activeDrive == DRIVE_SCRATCH && adjacentToItem(items, itemCount, ITEM_POST, body.x, body.y))
                 {

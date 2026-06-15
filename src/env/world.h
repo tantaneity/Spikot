@@ -29,6 +29,7 @@ typedef struct {
     float bladder;
     float boredom;
     float grime;
+    float social;
     int foodEaten;
 } CatBody;
 

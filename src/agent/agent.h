@@ -14,7 +14,8 @@ typedef enum {
     DRIVE_SCRATCH,
     DRIVE_BLADDER,
     DRIVE_PLAY,
-    DRIVE_GROOM
+    DRIVE_GROOM,
+    DRIVE_SOCIAL
 } DriveKind;
 
 typedef struct {
@@ -64,7 +65,7 @@ typedef struct {
 
 void AgentInit(CatAgent *agent, uint32_t seed);
 CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
-                   int otherX, int otherY, float heard, CatSenses senses,
+                   int otherX, int otherY, int playerX, int playerY, float heard, CatSenses senses,
                    const RoomItem *items, int itemCount, bool learn,
                    float *outReward, float *outVoice);
 void AgentReinforcePlace(CatAgent *agent, DriveKind drive, int x, int y);

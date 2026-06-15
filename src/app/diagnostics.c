@@ -95,8 +95,8 @@ int RunAgentTest(void)
         float newVoiceA = 0.0f, newVoiceB = 0.0f;
 
         CatSenses none = { 0 };
-        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, none, NULL, 0, true, NULL, &newVoiceA);
-        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, none, NULL, 0, true, NULL, &newVoiceB);
+        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, -1, -1, voiceB, none, NULL, 0, true, NULL, &newVoiceA);
+        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, -1, -1, voiceA, none, NULL, 0, true, NULL, &newVoiceB);
         voiceA = newVoiceA;
         voiceB = newVoiceB;
 
@@ -152,8 +152,8 @@ int RunLearnTest(void)
         int learnerBefore = learnerBody.foodEaten;
         int controlBefore = controlBody.foodEaten;
         CatSenses none = { 0 };
-        AgentAct(learner, learnerWorld, &learnerBody, -1, -1, 0.0f, none, NULL, 0, true, NULL, NULL);
-        AgentAct(control, controlWorld, &controlBody, -1, -1, 0.0f, none, NULL, 0, false, NULL, NULL);
+        AgentAct(learner, learnerWorld, &learnerBody, -1, -1, -1, -1, 0.0f, none, NULL, 0, true, NULL, NULL);
+        AgentAct(control, controlWorld, &controlBody, -1, -1, -1, -1, 0.0f, none, NULL, 0, false, NULL, NULL);
         if (learnerBody.foodEaten > learnerBefore) WorldSpawnFood(learnerWorld);
         if (controlBody.foodEaten > controlBefore) WorldSpawnFood(controlWorld);
         windowLearner += learnerBody.foodEaten - learnerBefore;
@@ -205,7 +205,7 @@ int RunSpatialTest(void)
             body.hunger = 1.0f;
             world->tiles[bowl.y][bowl.x] = TILE_FOOD;
             int before = body.foodEaten;
-            AgentAct(agent, world, &body, -1, -1, 0.0f, (CatSenses){ 0 }, &bowl, 1, true, NULL, NULL);
+            AgentAct(agent, world, &body, -1, -1, -1, -1, 0.0f, (CatSenses){ 0 }, &bowl, 1, true, NULL, NULL);
             if (body.foodEaten > before) { steps++; reached = true; break; }
         }
         blockSteps += steps;
@@ -252,7 +252,7 @@ int RunSleepTest(void)
             body.hunger = 1.0f;
             world->tiles[bowl.y][bowl.x] = TILE_FOOD;
             int before = body.foodEaten;
-            AgentAct(agent, world, &body, -1, -1, 0.0f, (CatSenses){ 0 }, &bowl, 1, true, NULL, NULL);
+            AgentAct(agent, world, &body, -1, -1, -1, -1, 0.0f, (CatSenses){ 0 }, &bowl, 1, true, NULL, NULL);
             if (body.foodEaten > before) break;
         }
     }

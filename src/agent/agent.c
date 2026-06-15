@@ -43,6 +43,7 @@ static float driveStrength(DriveKind drive)
         case DRIVE_FATIGUE: return FATIGUE_STRENGTH;
         case DRIVE_SCRATCH: return SCRATCH_STRENGTH;
         case DRIVE_BLADDER: return BLADDER_STRENGTH;
+        case DRIVE_SOCIAL: return SOCIAL_STRENGTH;
         default: return INSTINCT_STRENGTH;
     }
 }
@@ -158,6 +159,9 @@ static DriveKind dominantDrive(const CatBody *body, CatSenses senses, float hung
 
     float groomU = 0.85f * (body->grime - DRIVE_GROOM_GATE) / (1.0f - DRIVE_GROOM_GATE);
     if (groomU > bestU) { best = DRIVE_GROOM; bestU = groomU; }
+
+    float socialU = (body->social - DRIVE_SOCIAL_GATE) / (1.0f - DRIVE_SOCIAL_GATE);
+    if (socialU > bestU) { best = DRIVE_SOCIAL; bestU = socialU; }
 
     *outUrgency = bestU;
     return best;
@@ -298,7 +302,7 @@ void AgentInit(CatAgent *agent, uint32_t seed)
 }
 
 CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
-                   int otherX, int otherY, float heard, CatSenses senses,
+                   int otherX, int otherY, int playerX, int playerY, float heard, CatSenses senses,
                    const RoomItem *items, int itemCount, bool learn,
                    float *outReward, float *outVoice)
 {
@@ -340,6 +344,11 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
     int tDx = 0, tDy = 0;
     bool haveTarget = false;
     if (drive == DRIVE_CURIOSITY) { tDx = senses.dx; tDy = senses.dy; haveTarget = (tDx != 0 || tDy != 0); }
+    else if (drive == DRIVE_SOCIAL && playerX >= 0)
+    {
+        tDx = playerX - body->x; tDy = playerY - body->y;
+        haveTarget = (tDx != 0 || tDy != 0);
+    }
     else if (drive == DRIVE_HUNGER && items == NULL)
     {
         if (smelled) { tDx = foodDx; tDy = foodDy; haveTarget = true; }
