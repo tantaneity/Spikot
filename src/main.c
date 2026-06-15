@@ -22,26 +22,30 @@
 #define SNN_TEST_INPUT_DRIVE 0.85f
 
 #define AGENT_TEST_FLAG "--agent-test"
-#define AGENT_TEST_STEPS 12000
+#define AGENT_TEST_STEPS 8000
 #define AGENT_TEST_WINDOW 1000
 
 #define SHOT_FLAG "--shot"
 #define SHOT_WARMUP_STEPS 400
 #define SHOT_PATH "export/shot.png"
 
-#define GRID_ORIGIN_X 48
-#define GRID_ORIGIN_Y 48
+#define GRID_ORIGIN_X 40
+#define GRID_ORIGIN_Y 40
 #define SIM_FRAME_INTERVAL 6
 
 #define BRAIN_VIS_COLS 32
-#define BRAIN_VIS_CELL 14
-#define BRAIN_VIS_Y 432
+#define BRAIN_VIS_CELL 13
+#define BRAIN_VIS_Y 470
 #define BRAIN_INPUT_END SNN_INPUT_NEURONS
-#define BRAIN_OUTPUT_BEGIN (SNN_NEURON_COUNT - ACTION_COUNT * BRAIN_OUTPUT_GROUP)
+#define BRAIN_OUTPUT_BEGIN (SNN_NEURON_COUNT - SNN_OUTPUT_NEURONS)
+
+#define CAT_A_SEED_OFFSET 101u
+#define CAT_B_SEED_OFFSET 202u
 
 static const Color TILE_EMPTY_COLOR = (Color){ 30, 30, 42, 255 };
 static const Color TILE_FOOD_COLOR = (Color){ 96, 204, 124, 255 };
 static const Color TILE_OBSTACLE_COLOR = (Color){ 66, 66, 84, 255 };
+static const Color VOICE_COLOR = (Color){ 255, 196, 80, 255 };
 
 static uint32_t xorshiftSeed(uint32_t *state)
 {
@@ -58,22 +62,12 @@ static uint32_t nextSeed(void)
     return (uint32_t)GetRandomValue(1, 2000000000);
 }
 
-static double weightSum(const Network *network)
-{
-    double total = 0.0;
-    for (int pre = 0; pre < SNN_NEURON_COUNT; pre++)
-        for (int post = 0; post < SNN_NEURON_COUNT; post++)
-            total += network->weights[pre][post];
-    return total;
-}
-
 static int runSnnTest(void)
 {
     Network *network = malloc(sizeof(Network));
     if (!network) { fprintf(stderr, "alloc failed\n"); return 1; }
 
     NetworkInit(network, 12345u);
-    double before = weightSum(network);
 
     float external[SNN_NEURON_COUNT];
     uint32_t state = 999u;
@@ -88,56 +82,67 @@ static int runSnnTest(void)
 
         NetworkStep(network, external);
         NetworkApplyReward(network, 1.0f);
-        int spikes = NetworkSpikeCount(network);
-        totalSpikes += spikes;
-        if (tick % SNN_TEST_REPORT_EVERY == 0) printf("tick %4d   spikes %3d\n", tick, spikes);
+        totalSpikes += NetworkSpikeCount(network);
+        if (tick % SNN_TEST_REPORT_EVERY == 0)
+            printf("tick %4d   spikes %3d\n", tick, NetworkSpikeCount(network));
     }
 
-    double after = weightSum(network);
-    printf("---\nneurons %d  ticks %d\n", SNN_NEURON_COUNT, SNN_TEST_TICKS);
-    printf("avg spikes/tick %.2f\n", (double)totalSpikes / SNN_TEST_TICKS);
-    printf("weight sum %.4f -> %.4f  (delta %+.4f)\n", before, after, after - before);
-
+    printf("---\navg spikes/tick %.2f\n", (double)totalSpikes / SNN_TEST_TICKS);
     free(network);
     return 0;
 }
 
 static int runAgentTest(void)
 {
-    CatAgent *agent = malloc(sizeof(CatAgent));
+    CatAgent *agentA = malloc(sizeof(CatAgent));
+    CatAgent *agentB = malloc(sizeof(CatAgent));
     World *world = malloc(sizeof(World));
-    if (!agent || !world) { fprintf(stderr, "alloc failed\n"); free(agent); free(world); return 1; }
+    if (!agentA || !agentB || !world)
+    {
+        fprintf(stderr, "alloc failed\n");
+        free(agentA); free(agentB); free(world);
+        return 1;
+    }
 
-    AgentInit(agent, 4242u);
+    AgentInit(agentA, 4242u);
+    AgentInit(agentB, 7777u);
     WorldInit(world, 777u);
 
-    int windowFood = 0;
-    double windowReward = 0.0;
-    long windowVotes = 0;
+    CatBody bodyA, bodyB;
+    CatBodyInit(&bodyA, WORLD_WIDTH / 2 - 3, WORLD_HEIGHT / 2);
+    CatBodyInit(&bodyB, WORLD_WIDTH / 2 + 3, WORLD_HEIGHT / 2);
+
+    float voiceA = 0.0f, voiceB = 0.0f;
+    int windowFoodA = 0, windowFoodB = 0;
+    double windowVoiceA = 0.0, windowVoiceB = 0.0;
 
     for (int step = 1; step <= AGENT_TEST_STEPS; step++)
     {
-        int foodBefore = world->foodEaten;
-        float reward = 0.0f;
-        AgentAct(agent, world, &reward);
-        windowReward += reward;
-        windowFood += (world->foodEaten - foodBefore);
-        for (int action = 0; action < ACTION_COUNT; action++)
-            windowVotes += agent->actionSpikes[action];
+        int foodBeforeA = bodyA.foodEaten;
+        int foodBeforeB = bodyB.foodEaten;
+        float newVoiceA = 0.0f, newVoiceB = 0.0f;
+
+        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, NULL, &newVoiceA);
+        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, NULL, &newVoiceB);
+        voiceA = newVoiceA;
+        voiceB = newVoiceB;
+
+        windowFoodA += bodyA.foodEaten - foodBeforeA;
+        windowFoodB += bodyB.foodEaten - foodBeforeB;
+        windowVoiceA += voiceA;
+        windowVoiceB += voiceB;
 
         if (step % AGENT_TEST_WINDOW == 0)
         {
-            printf("steps %5d   food %3d   avg reward %+.4f   out spikes/step %.1f\n",
-                   step, windowFood, windowReward / AGENT_TEST_WINDOW,
-                   (double)windowVotes / AGENT_TEST_WINDOW);
-            windowFood = 0;
-            windowReward = 0.0;
-            windowVotes = 0;
+            printf("steps %5d   foodA %3d  foodB %3d   voiceA %.3f  voiceB %.3f\n",
+                   step, windowFoodA, windowFoodB,
+                   windowVoiceA / AGENT_TEST_WINDOW, windowVoiceB / AGENT_TEST_WINDOW);
+            windowFoodA = 0; windowFoodB = 0;
+            windowVoiceA = 0.0; windowVoiceB = 0.0;
         }
     }
 
-    free(agent);
-    free(world);
+    free(agentA); free(agentB); free(world);
     return 0;
 }
 
@@ -172,6 +177,18 @@ static int runExport(void)
     return 0;
 }
 
+static const char *actionName(CatAction action)
+{
+    switch (action)
+    {
+        case ACTION_UP: return "up";
+        case ACTION_DOWN: return "down";
+        case ACTION_LEFT: return "left";
+        case ACTION_RIGHT: return "right";
+        default: return "stay";
+    }
+}
+
 static void drawWorld(const World *world)
 {
     for (int y = 0; y < WORLD_HEIGHT; y++)
@@ -189,74 +206,54 @@ static void drawWorld(const World *world)
     }
 }
 
-static bool foodInSight(const World *world)
+static bool foodInSight(const World *world, const CatBody *body, int otherX, int otherY)
 {
     float vision[64];
-    WorldVision(world, vision);
+    WorldVisionFor(world, body, otherX, otherY, vision);
     int size = WorldVisionSize();
     for (int i = 0; i < size; i++)
         if (vision[i] > 0.5f) return true;
     return false;
 }
 
-static CatEmotion deriveEmotion(const CatAgent *agent, const World *world)
+static CatEmotion deriveEmotion(const CatAgent *agent, const World *world,
+                                const CatBody *body, int otherX, int otherY)
 {
     if (agent->lastReward >= REWARD_FOOD * 0.5f) return EMOTION_HAPPY;
     if (agent->lastReward <= REWARD_OBSTACLE * 0.5f) return EMOTION_SCARED;
-    if (world->hunger > 0.7f) return EMOTION_HUNGRY;
-    if (foodInSight(world)) return EMOTION_CURIOUS;
+    if (body->hunger > 0.7f) return EMOTION_HUNGRY;
+    if (foodInSight(world, body, otherX, otherY)) return EMOTION_CURIOUS;
     return EMOTION_CONTENT;
 }
 
-static void drawCat(const PixelCat *cat, const World *world, CatEmotion emotion)
+static void drawCat(const PixelCat *cat, const CatBody *body, CatEmotion emotion)
 {
     Vector2 position = {
-        (float)(GRID_ORIGIN_X + world->catX * WORLD_TILE_PX),
-        (float)(GRID_ORIGIN_Y + world->catY * WORLD_TILE_PX)
+        (float)(GRID_ORIGIN_X + body->x * WORLD_TILE_PX),
+        (float)(GRID_ORIGIN_Y + body->y * WORLD_TILE_PX)
     };
     float scale = (float)WORLD_TILE_PX / (float)CAT_CANVAS_SIZE;
     PixelCatDraw(cat, position, scale, emotion);
 }
 
-static const char *actionName(CatAction action)
+static void drawVoiceBar(int x, int y, int width, float level, Color tint)
 {
-    switch (action)
-    {
-        case ACTION_UP: return "up";
-        case ACTION_DOWN: return "down";
-        case ACTION_LEFT: return "left";
-        case ACTION_RIGHT: return "right";
-        default: return "stay";
-    }
+    DrawRectangle(x, y, width, 10, (Color){ 40, 40, 52, 255 });
+    DrawRectangle(x, y, (int)(width * level), 10, tint);
 }
 
-static void drawHud(const CatAgent *agent, const World *world, float reward)
+static int drawCatStatus(int panelX, int y, const char *label, Color swatch,
+                         const CatAgent *agent, const CatBody *body, float voice)
 {
-    int panelX = GRID_ORIGIN_X + WORLD_WIDTH * WORLD_TILE_PX + 32;
-    int y = GRID_ORIGIN_Y;
-
-    DrawText(WINDOW_TITLE, panelX, y, 32, RAYWHITE); y += 44;
-    DrawText("r: reset   space: new look   esc: quit", panelX, y, 16, GRAY); y += 32;
-
+    DrawRectangle(panelX, y + 2, 16, 16, swatch);
     char line[96];
-    snprintf(line, sizeof(line), "food eaten   %d", world->foodEaten);
-    DrawText(line, panelX, y, 20, LIGHTGRAY); y += 26;
-    snprintf(line, sizeof(line), "hunger       %.2f", world->hunger);
-    DrawText(line, panelX, y, 20, LIGHTGRAY); y += 26;
-    snprintf(line, sizeof(line), "action       %s", actionName(agent->lastAction));
-    DrawText(line, panelX, y, 20, LIGHTGRAY); y += 26;
-    snprintf(line, sizeof(line), "reward       %+.2f", reward);
-    DrawText(line, panelX, y, 20, LIGHTGRAY); y += 26;
-    snprintf(line, sizeof(line), "spikes       %d", NetworkSpikeCount(&agent->net));
-    DrawText(line, panelX, y, 20, LIGHTGRAY); y += 34;
-
-    DrawText("action votes", panelX, y, 16, GRAY); y += 22;
-    for (int action = 0; action < ACTION_COUNT; action++)
-    {
-        snprintf(line, sizeof(line), "%-6s %d", actionName((CatAction)action), agent->actionSpikes[action]);
-        DrawText(line, panelX, y, 18, agent->lastAction == action ? GREEN : LIGHTGRAY);
-        y += 22;
-    }
+    snprintf(line, sizeof(line), "%s  food %d  hunger %.2f  %s",
+             label, body->foodEaten, body->hunger, actionName(agent->lastAction));
+    DrawText(line, panelX + 24, y, 18, LIGHTGRAY);
+    y += 24;
+    DrawText("voice", panelX + 24, y, 14, GRAY);
+    drawVoiceBar(panelX + 72, y, 160, voice, VOICE_COLOR);
+    return y + 22;
 }
 
 static Color neuronColor(const Network *net, int index)
@@ -281,9 +278,9 @@ static Color neuronColor(const Network *net, int index)
     };
 }
 
-static void drawBrain(const Network *net, int originX)
+static void drawBrain(const Network *net, int originX, const char *label)
 {
-    DrawText("brain (512 neurons)", originX, BRAIN_VIS_Y - 26, 16, GRAY);
+    DrawText(label, originX, BRAIN_VIS_Y - 24, 16, GRAY);
     for (int index = 0; index < SNN_NEURON_COUNT; index++)
     {
         int col = index % BRAIN_VIS_COLS;
@@ -294,19 +291,32 @@ static void drawBrain(const Network *net, int originX)
     }
 }
 
-static void renderScene(const CatAgent *agent, const World *world, const PixelCat *cat, float reward)
+static void renderScene(const CatAgent *agentA, const CatBody *bodyA, const PixelCat *catA, float voiceA,
+                        const CatAgent *agentB, const CatBody *bodyB, const PixelCat *catB, float voiceB,
+                        const World *world)
 {
-    int panelX = GRID_ORIGIN_X + WORLD_WIDTH * WORLD_TILE_PX + 32;
+    int panelX = GRID_ORIGIN_X + WORLD_WIDTH * WORLD_TILE_PX + 28;
 
-    CatEmotion emotion = deriveEmotion(agent, world);
+    CatEmotion emotionA = deriveEmotion(agentA, world, bodyA, bodyB->x, bodyB->y);
+    CatEmotion emotionB = deriveEmotion(agentB, world, bodyB, bodyA->x, bodyA->y);
 
     BeginDrawing();
     ClearBackground(BACKGROUND_COLOR);
     drawWorld(world);
-    drawCat(cat, world, emotion);
-    drawHud(agent, world, reward);
-    drawBrain(&agent->net, panelX);
-    DrawFPS(WINDOW_WIDTH - 96, 16);
+    drawCat(catA, bodyA, emotionA);
+    drawCat(catB, bodyB, emotionB);
+
+    int y = GRID_ORIGIN_Y;
+    DrawText(WINDOW_TITLE, panelX, y, 30, RAYWHITE); y += 40;
+    DrawText("two cats, two brains, talking", panelX, y, 15, GRAY); y += 22;
+    DrawText("r: reset   esc: quit", panelX, y, 15, GRAY); y += 26;
+
+    y = drawCatStatus(panelX, y, "A", catA->genome.primary, agentA, bodyA, voiceA);
+    y = drawCatStatus(panelX, y, "B", catB->genome.primary, agentB, bodyB, voiceB);
+
+    drawBrain(&agentA->net, panelX, "cat A brain (blue in / orange out)");
+
+    DrawFPS(WINDOW_WIDTH - 90, 12);
     EndDrawing();
 }
 
@@ -315,31 +325,37 @@ static int runShot(void)
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
     SetTargetFPS(TARGET_FPS);
 
-    CatAgent *agent = malloc(sizeof(CatAgent));
+    CatAgent *agentA = malloc(sizeof(CatAgent));
+    CatAgent *agentB = malloc(sizeof(CatAgent));
     World *world = malloc(sizeof(World));
-    if (!agent || !world) { CloseWindow(); free(agent); free(world); return 1; }
+    if (!agentA || !agentB || !world) { CloseWindow(); free(agentA); free(agentB); free(world); return 1; }
 
-    AgentInit(agent, 4242u);
+    AgentInit(agentA, 4242u);
+    AgentInit(agentB, 7777u);
     WorldInit(world, 777u);
-    PixelCat cat = PixelCatCreate(CatGenomeRandom(20260615u));
+    PixelCat catA = PixelCatCreate(CatGenomeRandom(20260615u));
+    PixelCat catB = PixelCatCreate(CatGenomeRandom(31415926u));
 
-    float reward = 0.0f;
-    for (int step = 0; step < SHOT_WARMUP_STEPS; step++) AgentAct(agent, world, &reward);
+    CatBody bodyA, bodyB;
+    CatBodyInit(&bodyA, WORLD_WIDTH / 2 - 3, WORLD_HEIGHT / 2);
+    CatBodyInit(&bodyB, WORLD_WIDTH / 2 + 3, WORLD_HEIGHT / 2);
 
-    for (int attempt = 0; attempt < 64; attempt++)
+    float voiceA = 0.0f, voiceB = 0.0f;
+    for (int step = 0; step < SHOT_WARMUP_STEPS; step++)
     {
-        AgentAct(agent, world, &reward);
-        int votes = 0;
-        for (int action = 0; action < ACTION_COUNT; action++) votes += agent->actionSpikes[action];
-        if (votes > 0) break;
+        float nva = 0.0f, nvb = 0.0f;
+        AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, NULL, &nva);
+        AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, NULL, &nvb);
+        voiceA = nva; voiceB = nvb;
     }
 
-    for (int frame = 0; frame < 8; frame++) renderScene(agent, world, &cat, reward);
+    for (int frame = 0; frame < 8; frame++)
+        renderScene(agentA, &bodyA, &catA, voiceA, agentB, &bodyB, &catB, voiceB, world);
     TakeScreenshot(SHOT_PATH);
 
-    PixelCatUnload(&cat);
-    free(agent);
-    free(world);
+    PixelCatUnload(&catA);
+    PixelCatUnload(&catB);
+    free(agentA); free(agentB); free(world);
     CloseWindow();
     return 0;
 }
@@ -361,42 +377,53 @@ int main(int argc, char **argv)
     SetTargetFPS(TARGET_FPS);
     SetRandomSeed((unsigned int)(GetTime() * 1000.0) + 1u);
 
-    CatAgent *agent = malloc(sizeof(CatAgent));
+    CatAgent *agentA = malloc(sizeof(CatAgent));
+    CatAgent *agentB = malloc(sizeof(CatAgent));
     World *world = malloc(sizeof(World));
-    if (!agent || !world) { CloseWindow(); return 1; }
+    if (!agentA || !agentB || !world) { CloseWindow(); return 1; }
 
-    AgentInit(agent, nextSeed());
+    uint32_t seed = nextSeed();
+    AgentInit(agentA, seed + CAT_A_SEED_OFFSET);
+    AgentInit(agentB, seed + CAT_B_SEED_OFFSET);
     WorldInit(world, nextSeed());
-    PixelCat cat = PixelCatCreate(CatGenomeRandom(nextSeed()));
 
+    PixelCat catA = PixelCatCreate(CatGenomeRandom(nextSeed()));
+    PixelCat catB = PixelCatCreate(CatGenomeRandom(nextSeed()));
+
+    CatBody bodyA, bodyB;
+    CatBodyInit(&bodyA, WORLD_WIDTH / 2 - 3, WORLD_HEIGHT / 2);
+    CatBodyInit(&bodyB, WORLD_WIDTH / 2 + 3, WORLD_HEIGHT / 2);
+
+    float voiceA = 0.0f, voiceB = 0.0f;
     int frame = 0;
-    float lastReward = 0.0f;
 
     while (!WindowShouldClose())
     {
         if (IsKeyPressed(KEY_R))
         {
-            AgentInit(agent, nextSeed());
+            AgentInit(agentA, nextSeed());
+            AgentInit(agentB, nextSeed());
             WorldInit(world, nextSeed());
-        }
-        if (IsKeyPressed(KEY_SPACE))
-        {
-            PixelCatUnload(&cat);
-            cat = PixelCatCreate(CatGenomeRandom(nextSeed()));
+            CatBodyInit(&bodyA, WORLD_WIDTH / 2 - 3, WORLD_HEIGHT / 2);
+            CatBodyInit(&bodyB, WORLD_WIDTH / 2 + 3, WORLD_HEIGHT / 2);
+            voiceA = 0.0f; voiceB = 0.0f;
         }
 
         if (++frame >= SIM_FRAME_INTERVAL)
         {
             frame = 0;
-            AgentAct(agent, world, &lastReward);
+            float nva = 0.0f, nvb = 0.0f;
+            AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, NULL, &nva);
+            AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, NULL, &nvb);
+            voiceA = nva; voiceB = nvb;
         }
 
-        renderScene(agent, world, &cat, lastReward);
+        renderScene(agentA, &bodyA, &catA, voiceA, agentB, &bodyB, &catB, voiceB, world);
     }
 
-    PixelCatUnload(&cat);
-    free(agent);
-    free(world);
+    PixelCatUnload(&catA);
+    PixelCatUnload(&catB);
+    free(agentA); free(agentB); free(world);
     CloseWindow();
     return 0;
 }
