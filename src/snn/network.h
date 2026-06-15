@@ -9,6 +9,8 @@ typedef struct {
     float potential[SNN_NEURON_COUNT];
     float trace[SNN_NEURON_COUNT];
     bool spiked[SNN_NEURON_COUNT];
+    bool inhibitory[SNN_NEURON_COUNT];
+    int refractory[SNN_NEURON_COUNT];
     float current[SNN_NEURON_COUNT];
     float weights[SNN_NEURON_COUNT][SNN_NEURON_COUNT];
 } Network;

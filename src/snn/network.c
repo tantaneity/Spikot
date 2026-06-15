@@ -28,7 +28,11 @@ void NetworkInit(Network *network, uint32_t seed)
     memset(network->potential, 0, sizeof(network->potential));
     memset(network->trace, 0, sizeof(network->trace));
     memset(network->spiked, 0, sizeof(network->spiked));
+    memset(network->refractory, 0, sizeof(network->refractory));
     memset(network->current, 0, sizeof(network->current));
+
+    for (int neuron = 0; neuron < N; neuron++)
+        network->inhibitory[neuron] = randomUnit(&state) < SNN_INHIBITORY_FRACTION;
 
     for (int pre = 0; pre < N; pre++)
     {
@@ -51,8 +55,9 @@ static void accumulateCurrent(Network *network, const float *externalInput)
     {
         if (!network->spiked[pre]) continue;
         const float *outgoing = network->weights[pre];
+        float sign = network->inhibitory[pre] ? -SNN_INHIBITORY_GAIN : 1.0f;
         for (int post = 0; post < N; post++)
-            network->current[post] += outgoing[post];
+            network->current[post] += outgoing[post] * sign;
     }
 }
 
@@ -84,7 +89,17 @@ void NetworkStep(Network *network, const float *externalInput, float reward)
 
     bool fired[N];
     for (int neuron = 0; neuron < N; neuron++)
+    {
+        if (network->refractory[neuron] > 0)
+        {
+            network->refractory[neuron]--;
+            network->potential[neuron] = SNN_V_RESET;
+            fired[neuron] = false;
+            continue;
+        }
         fired[neuron] = NeuronIntegrate(&network->potential[neuron], network->current[neuron]);
+        if (fired[neuron]) network->refractory[neuron] = SNN_REFRACTORY_TICKS;
+    }
 
     for (int neuron = 0; neuron < N; neuron++)
         network->trace[neuron] = network->trace[neuron] * SNN_TRACE_DECAY +
