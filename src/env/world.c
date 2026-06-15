@@ -69,18 +69,16 @@ void WorldInit(World *world, uint32_t seed)
     wallVertical(world, 0, 0, WORLD_HEIGHT - 1, -1);
     wallVertical(world, WORLD_WIDTH - 1, 0, WORLD_HEIGHT - 1, -1);
 
-    wallVertical(world, 11, 1, WORLD_HEIGHT - 2, 16);
-    wallVertical(world, 21, 1, WORLD_HEIGHT - 2, 7);
-    wallHorizontal(world, 11, 1, WORLD_WIDTH - 2, 6);
-    wallHorizontal(world, 22, 1, WORLD_WIDTH - 2, 26);
+    wallVertical(world, WORLD_WIDTH / 2, 1, WORLD_HEIGHT - 2, WORLD_HEIGHT / 2 - 1);
+    wallHorizontal(world, WORLD_HEIGHT / 2, 1, WORLD_WIDTH - 2, WORLD_WIDTH / 2 - 1);
 
-    clearArea(world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 3);
+    clearArea(world, WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 2);
 
     for (int i = 0; i < WORLD_CLUTTER_COUNT; i++) spawnOnEmpty(world, TILE_OBSTACLE);
     for (int i = 0; i < WORLD_FOOD_COUNT; i++) spawnOnEmpty(world, TILE_FOOD);
 
-    world->tiles[WORLD_HEIGHT / 2][WORLD_WIDTH / 2 - 3] = TILE_EMPTY;
-    world->tiles[WORLD_HEIGHT / 2][WORLD_WIDTH / 2 + 3] = TILE_EMPTY;
+    clearArea(world, CAT_A_START_X, CAT_A_START_Y, 1);
+    clearArea(world, CAT_B_START_X, CAT_B_START_Y, 1);
 }
 
 void CatBodyInit(CatBody *cat, int x, int y)

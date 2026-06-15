@@ -109,8 +109,8 @@ static int runAgentTest(void)
     WorldInit(world, 777u);
 
     CatBody bodyA, bodyB;
-    CatBodyInit(&bodyA, WORLD_WIDTH / 2 - 3, WORLD_HEIGHT / 2);
-    CatBodyInit(&bodyB, WORLD_WIDTH / 2 + 3, WORLD_HEIGHT / 2);
+    CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
+    CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
 
     float voiceA = 0.0f, voiceB = 0.0f;
     int windowFoodA = 0, windowFoodB = 0;
@@ -337,8 +337,8 @@ static int runShot(void)
     PixelCat catB = PixelCatCreate(CatGenomeRandom(31415926u));
 
     CatBody bodyA, bodyB;
-    CatBodyInit(&bodyA, WORLD_WIDTH / 2 - 3, WORLD_HEIGHT / 2);
-    CatBodyInit(&bodyB, WORLD_WIDTH / 2 + 3, WORLD_HEIGHT / 2);
+    CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
+    CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
 
     float voiceA = 0.0f, voiceB = 0.0f;
     for (int step = 0; step < SHOT_WARMUP_STEPS; step++)
@@ -391,8 +391,8 @@ int main(int argc, char **argv)
     PixelCat catB = PixelCatCreate(CatGenomeRandom(nextSeed()));
 
     CatBody bodyA, bodyB;
-    CatBodyInit(&bodyA, WORLD_WIDTH / 2 - 3, WORLD_HEIGHT / 2);
-    CatBodyInit(&bodyB, WORLD_WIDTH / 2 + 3, WORLD_HEIGHT / 2);
+    CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
+    CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
 
     float voiceA = 0.0f, voiceB = 0.0f;
     int frame = 0;
@@ -404,8 +404,8 @@ int main(int argc, char **argv)
             AgentInit(agentA, nextSeed());
             AgentInit(agentB, nextSeed());
             WorldInit(world, nextSeed());
-            CatBodyInit(&bodyA, WORLD_WIDTH / 2 - 3, WORLD_HEIGHT / 2);
-            CatBodyInit(&bodyB, WORLD_WIDTH / 2 + 3, WORLD_HEIGHT / 2);
+            CatBodyInit(&bodyA, CAT_A_START_X, CAT_A_START_Y);
+            CatBodyInit(&bodyB, CAT_B_START_X, CAT_B_START_Y);
             voiceA = 0.0f; voiceB = 0.0f;
         }
 
