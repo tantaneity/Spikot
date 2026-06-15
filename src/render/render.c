@@ -351,15 +351,27 @@ static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *bod
     DrawEllipse((int)centerX, (int)(centerY + drawSize * 0.40f), drawSize * 0.28f, drawSize * 0.10f, (Color){ 0, 0, 0, 110 });
 
     Texture2D texture;
-    if (view->asleep) texture = cat->textures[EMOTION_HAPPY];
-    else if (walking) texture = cat->walk[((int)(t * 8.0f)) & 1];
-    else texture = cat->textures[view->mood];
+    float sx = drawSize, sy = drawSize, offsetY = 0.0f;
+    if (view->asleep)
+    {
+        texture = cat->lie;
+        offsetY = drawSize * 0.10f;
+    }
+    else if (walking)
+    {
+        texture = cat->walk[((int)(t * 8.0f)) & 1];
+    }
+    else
+    {
+        texture = cat->textures[view->mood];
+        sy = drawSize * (1.0f + view->stretch * 0.5f);
+        sx = drawSize * (1.0f - view->stretch * 0.18f);
+        offsetY = -(sy - drawSize) * 0.5f;
+    }
 
-    float s = view->asleep ? drawSize * 0.86f : drawSize;
     Rectangle src = { 0.0f, 0.0f, (view->faceLeft ? -1.0f : 1.0f) * texture.width, (float)texture.height };
-    float offsetY = view->asleep ? drawSize * 0.14f : 0.0f;
-    Rectangle dest = { centerX, centerY + offsetY + bob, s, s };
-    Vector2 origin = { s * 0.5f, s * 0.5f };
+    Rectangle dest = { centerX, centerY + offsetY + bob, sx, sy };
+    Vector2 origin = { sx * 0.5f, sy * 0.5f };
     DrawTexturePro(texture, src, dest, origin, tilt, WHITE);
 
     if (view->asleep) drawZzz(centerX, centerY - drawSize * 0.35f, time);

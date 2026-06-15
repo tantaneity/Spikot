@@ -17,6 +17,7 @@ typedef struct {
     CatGenome genome;
     Texture2D textures[EMOTION_COUNT];
     Texture2D walk[2];
+    Texture2D lie;
 } PixelCat;
 
 const char *CatEmotionName(CatEmotion emotion);

@@ -34,7 +34,7 @@ static uint32_t nextSeed(void)
 
 static CatView viewAt(const CatBody *body)
 {
-    return (CatView){ (float)body->x, (float)body->y, false, EMOTION_CONTENT, 0.0f, 0, false };
+    return (CatView){ (float)body->x, (float)body->y, false, EMOTION_CONTENT, 0.0f, 0, false, 0.0f };
 }
 
 static int resetRoom(RoomItem *items)
@@ -75,7 +75,12 @@ static void updateSleep(CatView *view, const CatBody *body, float *awakeTimer, f
     if (view->asleep)
     {
         *napTimer += dt;
-        if (*napTimer > NAP_DURATION || body->hunger > WAKE_HUNGER) { view->asleep = false; *awakeTimer = 0.0f; }
+        if (*napTimer > NAP_DURATION || body->hunger > WAKE_HUNGER)
+        {
+            view->asleep = false;
+            view->stretch = 1.0f;
+            *awakeTimer = 0.0f;
+        }
     }
     else
     {
@@ -353,6 +358,7 @@ int RunGame(void)
         if (dragCat != 0) ViewUpdate(&view, &body);
         MoodUpdate(&view, agent, world, &body, -1, -1, dt);
         updateSleep(&view, &body, &awakeTimer, &napTimer, dt);
+        if (view.stretch > 0.0f) { view.stretch -= dt * 2.5f; if (view.stretch < 0.0f) view.stretch = 0.0f; }
         ParticlesUpdate(dt);
 
         RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, dragItem, showBrain, GetTime());

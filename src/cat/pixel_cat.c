@@ -300,6 +300,51 @@ static Image CatRenderWalk(CatGenome genome, int frame)
     return canvas;
 }
 
+static Image CatRenderLie(CatGenome genome)
+{
+    Image canvas = GenImageColor(CANVAS, CANVAS, BLANK);
+
+    for (int y = 0; y < CANVAS; y++)
+    {
+        for (int x = 0; x < CANVAS; x++)
+        {
+            float px = x + 0.5f;
+            float py = y + 0.5f;
+            Color color = BLANK;
+            bool painted = false;
+
+            if (inTriangle(px, py, 13.0f, 5.2f, 10.8f, 7.8f, 13.8f, 7.8f))
+            {
+                color = genome.primary;
+                painted = true;
+            }
+            if (inEllipse(px, py, 7.5f, 11.2f, 5.6f, 2.4f))
+            {
+                color = furColor(x, y, &genome);
+                painted = true;
+            }
+            if (inEllipse(px, py, 12.0f, 9.8f, 2.7f, 2.5f))
+            {
+                color = genome.primary;
+                painted = true;
+            }
+
+            if (painted) ImageDrawPixel(&canvas, x, y, color);
+        }
+    }
+
+    int tail[4][2] = { { 2, 11 }, { 1, 10 }, { 1, 9 }, { 2, 8 } };
+    for (int i = 0; i < 4; i++) ImageDrawPixel(&canvas, tail[i][0], tail[i][1], genome.primary);
+
+    addOutline(&canvas);
+
+    ImageDrawPixel(&canvas, 12, 9, PUPIL_COLOR);
+    ImageDrawPixel(&canvas, 13, 9, PUPIL_COLOR);
+    ImageDrawPixel(&canvas, 14, 10, NOSE_COLOR);
+
+    return canvas;
+}
+
 PixelCat PixelCatCreate(CatGenome genome)
 {
     PixelCat cat;
@@ -316,6 +361,12 @@ PixelCat PixelCatCreate(CatGenome genome)
         Image canvas = CatRenderWalk(genome, frame);
         cat.walk[frame] = LoadTextureFromImage(canvas);
         SetTextureFilter(cat.walk[frame], TEXTURE_FILTER_POINT);
+        UnloadImage(canvas);
+    }
+    {
+        Image canvas = CatRenderLie(genome);
+        cat.lie = LoadTextureFromImage(canvas);
+        SetTextureFilter(cat.lie, TEXTURE_FILTER_POINT);
         UnloadImage(canvas);
     }
     return cat;
@@ -335,4 +386,5 @@ void PixelCatUnload(PixelCat *cat)
         UnloadTexture(cat->textures[emotion]);
     for (int frame = 0; frame < 2; frame++)
         UnloadTexture(cat->walk[frame]);
+    UnloadTexture(cat->lie);
 }

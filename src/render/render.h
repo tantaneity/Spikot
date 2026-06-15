@@ -17,6 +17,7 @@ typedef struct {
     float moodHold;
     int pets;
     bool asleep;
+    float stretch;
 } CatView;
 
 void ViewUpdate(CatView *view, const CatBody *body);
