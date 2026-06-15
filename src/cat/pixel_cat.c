@@ -6,17 +6,17 @@
 #define CANVAS CAT_CANVAS_SIZE
 
 #define HEAD_CX 7.5f
-#define HEAD_CY 6.4f
-#define HEAD_RX 4.2f
+#define HEAD_CY 6.0f
+#define HEAD_RX 4.3f
 #define HEAD_RY 3.3f
 
-#define BODY_CY 12.5f
-#define BODY_RX_BASE 3.1f
-#define BODY_RX_GAIN 1.3f
-#define BODY_RY 3.5f
+#define BODY_CY 12.8f
+#define BODY_RX_BASE 2.6f
+#define BODY_RX_GAIN 0.9f
+#define BODY_RY 2.9f
 
-#define EAR_BASE_Y 3.6f
-#define EAR_SPREAD 1.8f
+#define EAR_BASE_Y 3.9f
+#define EAR_SPREAD 1.6f
 
 #define WALK_HEAD_CY 5.6f
 #define WALK_HEAD_RX 3.9f
@@ -26,10 +26,12 @@
 #define WALK_BODY_RY 2.7f
 #define WALK_LEG_COUNT 4
 
-#define MARKING_GAIN 0.42f
+#define MARKING_GAIN 0.22f
 
 static const Color NOSE_COLOR = (Color){ 240, 150, 165, 255 };
 static const Color PUPIL_COLOR = (Color){ 22, 22, 30, 255 };
+static const Color GLINT_COLOR = (Color){ 250, 250, 255, 255 };
+static const Color WHISKER_COLOR = (Color){ 226, 226, 230, 220 };
 
 typedef struct {
     float earTipY;
@@ -42,11 +44,11 @@ static EmotionStyle styleFor(CatEmotion emotion)
 {
     switch (emotion)
     {
-        case EMOTION_CURIOUS: return (EmotionStyle){ -1.4f, 0.4f, false, false };
-        case EMOTION_SCARED:  return (EmotionStyle){ 1.9f, -0.8f, true, false };
-        case EMOTION_HAPPY:   return (EmotionStyle){ -0.4f, 0.0f, false, true };
-        case EMOTION_HUNGRY:  return (EmotionStyle){ 0.6f, -0.3f, false, false };
-        default:              return (EmotionStyle){ -0.4f, 0.0f, false, false };
+        case EMOTION_CURIOUS: return (EmotionStyle){ -1.8f, 0.4f, false, false };
+        case EMOTION_SCARED:  return (EmotionStyle){ 0.6f, -0.7f, true, false };
+        case EMOTION_HAPPY:   return (EmotionStyle){ -1.0f, 0.0f, false, true };
+        case EMOTION_HUNGRY:  return (EmotionStyle){ -0.2f, -0.3f, false, false };
+        default:              return (EmotionStyle){ -1.0f, 0.0f, false, false };
     }
 }
 
@@ -109,9 +111,9 @@ static void buildTailMask(bool mask[CANVAS][CANVAS], float tailLength)
 
 static bool inEars(float px, float py, float earAngle, float tipY, float *outIsInner)
 {
-    float leftTipX = 4.3f - earAngle * EAR_SPREAD;
-    float leftBaseL = 3.4f;
-    float leftBaseR = 6.2f;
+    float leftTipX = 4.4f - earAngle * EAR_SPREAD;
+    float leftBaseL = 3.8f;
+    float leftBaseR = 5.7f;
     float rightTipX = CANVAS - leftTipX;
     float rightBaseL = CANVAS - leftBaseR;
     float rightBaseR = CANVAS - leftBaseL;
@@ -126,33 +128,43 @@ static bool inEars(float px, float py, float earAngle, float tipY, float *outIsI
     return left || right;
 }
 
-static void drawEyes(Image *canvas, const CatGenome *genome, const EmotionStyle *style)
+static void drawFace(Image *canvas, const CatGenome *genome, const EmotionStyle *style)
 {
     if (style->squintEyes)
     {
+        ImageDrawPixel(canvas, 4, 6, PUPIL_COLOR);
         ImageDrawPixel(canvas, 5, 6, PUPIL_COLOR);
-        ImageDrawPixel(canvas, 6, 6, PUPIL_COLOR);
-        ImageDrawPixel(canvas, 9, 6, PUPIL_COLOR);
         ImageDrawPixel(canvas, 10, 6, PUPIL_COLOR);
+        ImageDrawPixel(canvas, 11, 6, PUPIL_COLOR);
     }
     else if (style->wideEyes)
     {
-        ImageDrawPixel(canvas, 5, 6, genome->eyeColor);
-        ImageDrawPixel(canvas, 6, 6, genome->eyeColor);
-        ImageDrawPixel(canvas, 9, 6, genome->eyeColor);
-        ImageDrawPixel(canvas, 10, 6, genome->eyeColor);
-        ImageDrawPixel(canvas, 5, 7, PUPIL_COLOR);
-        ImageDrawPixel(canvas, 6, 7, PUPIL_COLOR);
-        ImageDrawPixel(canvas, 9, 7, PUPIL_COLOR);
-        ImageDrawPixel(canvas, 10, 7, PUPIL_COLOR);
+        ImageDrawPixel(canvas, 4, 5, genome->eyeColor);
+        ImageDrawPixel(canvas, 5, 5, genome->eyeColor);
+        ImageDrawPixel(canvas, 4, 6, PUPIL_COLOR);
+        ImageDrawPixel(canvas, 5, 6, PUPIL_COLOR);
+        ImageDrawPixel(canvas, 10, 5, genome->eyeColor);
+        ImageDrawPixel(canvas, 11, 5, genome->eyeColor);
+        ImageDrawPixel(canvas, 10, 6, PUPIL_COLOR);
+        ImageDrawPixel(canvas, 11, 6, PUPIL_COLOR);
+        ImageDrawPixel(canvas, 4, 5, GLINT_COLOR);
+        ImageDrawPixel(canvas, 10, 5, GLINT_COLOR);
     }
     else
     {
-        ImageDrawPixel(canvas, 6, 6, genome->eyeColor);
-        ImageDrawPixel(canvas, 9, 6, genome->eyeColor);
-        ImageDrawPixel(canvas, 6, 7, PUPIL_COLOR);
-        ImageDrawPixel(canvas, 9, 7, PUPIL_COLOR);
+        ImageDrawPixel(canvas, 5, 6, genome->eyeColor);
+        ImageDrawPixel(canvas, 10, 6, genome->eyeColor);
+        ImageDrawPixel(canvas, 5, 5, GLINT_COLOR);
+        ImageDrawPixel(canvas, 10, 5, GLINT_COLOR);
     }
+
+    ImageDrawPixel(canvas, 7, 8, NOSE_COLOR);
+    ImageDrawPixel(canvas, 8, 8, NOSE_COLOR);
+
+    ImageDrawPixel(canvas, 1, 8, WHISKER_COLOR);
+    ImageDrawPixel(canvas, 2, 8, WHISKER_COLOR);
+    ImageDrawPixel(canvas, 13, 8, WHISKER_COLOR);
+    ImageDrawPixel(canvas, 14, 8, WHISKER_COLOR);
 }
 
 const char *CatEmotionName(CatEmotion emotion)
@@ -208,7 +220,7 @@ Image CatRenderImage(CatGenome genome, CatEmotion emotion)
 
             if (inEllipse(px, py, HEAD_CX, HEAD_CY, HEAD_RX, HEAD_RY))
             {
-                color = furColor(x, y, &genome);
+                color = genome.primary;
                 painted = true;
             }
 
@@ -216,10 +228,7 @@ Image CatRenderImage(CatGenome genome, CatEmotion emotion)
         }
     }
 
-    drawEyes(&canvas, &genome, &style);
-    ImageDrawPixel(&canvas, 7, 8, NOSE_COLOR);
-    ImageDrawPixel(&canvas, 8, 8, NOSE_COLOR);
-
+    drawFace(&canvas, &genome, &style);
     return canvas;
 }
 
@@ -240,7 +249,7 @@ static Image CatRenderWalk(CatGenome genome, int frame)
             bool painted = false;
 
             float isInnerEar = 0.0f;
-            if (inEars(px, py, genome.earAngle, -0.4f, &isInnerEar))
+            if (inEars(px, py, genome.earAngle, -1.0f, &isInnerEar))
             {
                 color = (isInnerEar > 0.5f) ? genome.secondary : genome.primary;
                 painted = true;
@@ -260,7 +269,7 @@ static Image CatRenderWalk(CatGenome genome, int frame)
 
             if (inEllipse(px, py, HEAD_CX, WALK_HEAD_CY, WALK_HEAD_RX, WALK_HEAD_RY))
             {
-                color = furColor(x, y, &genome);
+                color = genome.primary;
                 painted = true;
             }
 
@@ -278,10 +287,7 @@ static Image CatRenderWalk(CatGenome genome, int frame)
     }
 
     EmotionStyle style = styleFor(EMOTION_CONTENT);
-    drawEyes(&canvas, &genome, &style);
-    ImageDrawPixel(&canvas, 7, 7, NOSE_COLOR);
-    ImageDrawPixel(&canvas, 8, 7, NOSE_COLOR);
-
+    drawFace(&canvas, &genome, &style);
     return canvas;
 }
 
