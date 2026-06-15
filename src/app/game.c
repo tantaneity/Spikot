@@ -29,33 +29,39 @@ static CatView viewAt(const CatBody *body)
     return (CatView){ (float)body->x, (float)body->y, false, EMOTION_CONTENT, 0.0f, 0, false };
 }
 
-static void updateSleep(CatView *view, const CatBody *body, float *restTimer, float dt)
+static void updateSleep(CatView *view, const CatBody *body,
+                        float *awakeTimer, float *napTimer, float dt)
 {
     if (view->asleep)
     {
-        if (body->hunger > WAKE_HUNGER)
+        *napTimer += dt;
+        if (*napTimer > NAP_DURATION || body->hunger > WAKE_HUNGER)
         {
             view->asleep = false;
-            *restTimer = 0.0f;
+            *awakeTimer = 0.0f;
         }
-        return;
-    }
-
-    if (body->hunger < SLEEP_HUNGER)
-    {
-        *restTimer += dt;
-        if (*restTimer > SLEEP_DELAY) view->asleep = true;
     }
     else
     {
-        *restTimer = 0.0f;
+        *awakeTimer += dt;
+        if (body->hunger < SLEEP_HUNGER && *awakeTimer > MIN_AWAKE)
+        {
+            view->asleep = true;
+            *napTimer = 0.0f;
+        }
     }
 }
 
-static void wake(CatView *view, float *restTimer)
+static void wake(CatView *view, float *awakeTimer)
 {
     view->asleep = false;
-    *restTimer = 0.0f;
+    *awakeTimer = 0.0f;
+}
+
+static void restTick(CatBody *body)
+{
+    body->hunger += HUNGER_RATE;
+    if (body->hunger > 1.0f) body->hunger = 1.0f;
 }
 
 int RunShot(void)
@@ -133,7 +139,8 @@ int RunGame(void)
     int dragging = -1;
     bool dragMoved = false;
     Vector2 pressPos = { 0 };
-    float restTimerA = 0.0f, restTimerB = 0.0f;
+    float awakeTimerA = 0.0f, napTimerA = 0.0f;
+    float awakeTimerB = 0.0f, napTimerB = 0.0f;
 
     CatView viewA = viewAt(&bodyA);
     CatView viewB = viewAt(&bodyB);
@@ -152,7 +159,8 @@ int RunGame(void)
             viewA = viewAt(&bodyA);
             viewB = viewAt(&bodyB);
             voiceA = 0.0f; voiceB = 0.0f;
-            restTimerA = 0.0f; restTimerB = 0.0f;
+            awakeTimerA = 0.0f; napTimerA = 0.0f;
+            awakeTimerB = 0.0f; napTimerB = 0.0f;
             dragging = -1;
         }
         if (IsKeyPressed(KEY_B)) showBrain = !showBrain;
@@ -174,7 +182,7 @@ int RunGame(void)
             dragging = hovered;
             dragMoved = false;
             pressPos = mouse;
-            wake(hovered == 0 ? &viewA : &viewB, hovered == 0 ? &restTimerA : &restTimerB);
+            wake(hovered == 0 ? &viewA : &viewB, hovered == 0 ? &awakeTimerA : &awakeTimerB);
         }
         if (dragging >= 0)
         {
@@ -214,12 +222,12 @@ int RunGame(void)
             float nva = voiceA, nvb = voiceB;
             if (dragging != 0)
             {
-                if (viewA.asleep) AgentRest(agentA);
+                if (viewA.asleep) { AgentRest(agentA); restTick(&bodyA); }
                 else AgentAct(agentA, world, &bodyA, bodyB.x, bodyB.y, voiceB, true, NULL, &nva);
             }
             if (dragging != 1)
             {
-                if (viewB.asleep) AgentRest(agentB);
+                if (viewB.asleep) { AgentRest(agentB); restTick(&bodyB); }
                 else AgentAct(agentB, world, &bodyB, bodyA.x, bodyA.y, voiceA, true, NULL, &nvb);
             }
             voiceA = nva; voiceB = nvb;
@@ -229,8 +237,8 @@ int RunGame(void)
         if (dragging != 1) ViewUpdate(&viewB, &bodyB);
         MoodUpdate(&viewA, agentA, world, &bodyA, bodyB.x, bodyB.y, dt);
         MoodUpdate(&viewB, agentB, world, &bodyB, bodyA.x, bodyA.y, dt);
-        updateSleep(&viewA, &bodyA, &restTimerA, dt);
-        updateSleep(&viewB, &bodyB, &restTimerB, dt);
+        updateSleep(&viewA, &bodyA, &awakeTimerA, &napTimerA, dt);
+        updateSleep(&viewB, &bodyB, &awakeTimerB, &napTimerB, dt);
         HeartsUpdate(dt);
 
         RenderScene(agentA, &bodyA, &viewA, &catA, voiceA,
