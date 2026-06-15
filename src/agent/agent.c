@@ -264,6 +264,7 @@ static void updateNeuromods(CatAgent *agent, const CatBody *body, CatSenses sens
     m->acetylcholine = clampf(m->acetylcholine, 0.0f, 1.0f);
 
     m->cortisol += CORT_RATE * (m->noradrenaline - m->cortisol);
+    if (threat > 0.5f) m->cortisol = clampf(m->cortisol + threat * PAIN_CORTISOL, 0.0f, 1.0f);
     m->valence = clampf(m->serotonin - 0.7f * needPressure + 0.3f * m->dopamine - 0.5f * threat, -1.0f, 1.0f);
     m->arousal = clampf(0.7f * m->noradrenaline + 0.3f * m->dopamine, 0.0f, 1.0f);
 }
