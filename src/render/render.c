@@ -142,7 +142,7 @@ static void glow(float cx, float cy, float radius, Color tint, float strength)
 
 static bool foodInSight(const World *world, const CatBody *body, int otherX, int otherY)
 {
-    float vision[64];
+    float vision[128];
     WorldVisionFor(world, body, otherX, otherY, vision);
     int size = WorldVisionSize();
     for (int i = 0; i < size; i++)
