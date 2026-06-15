@@ -204,8 +204,10 @@ static void drawCat(const PixelCat *cat, const CatView *view, const CatBody *bod
 
     DrawEllipse((int)centerX, (int)(centerY + 8.0f), view->asleep ? 11.0f : 9.0f, 3.5f, SHADOW_COLOR);
 
-    CatEmotion face = view->asleep ? EMOTION_HAPPY : view->mood;
-    Texture2D texture = cat->textures[face];
+    Texture2D texture;
+    if (view->asleep) texture = cat->textures[EMOTION_HAPPY];
+    else if (walking) texture = cat->walk[((int)(t * 8.0f)) & 1];
+    else texture = cat->textures[view->mood];
     Rectangle source = { 0.0f, 0.0f, (view->faceLeft ? -1.0f : 1.0f) * texture.width, (float)texture.height };
     float offsetY = view->asleep ? 4.0f : -3.0f;
     Rectangle dest = { centerX, centerY + offsetY + bob, drawSize, drawSize };

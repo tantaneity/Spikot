@@ -16,6 +16,7 @@ typedef enum {
 typedef struct {
     CatGenome genome;
     Texture2D textures[EMOTION_COUNT];
+    Texture2D walk[2];
 } PixelCat;
 
 const char *CatEmotionName(CatEmotion emotion);
