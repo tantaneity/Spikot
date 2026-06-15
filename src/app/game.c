@@ -9,6 +9,10 @@
 #include "raylib.h"
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdio.h>
+
+#define SAVE_PATH "spikot.save"
+#define SAVE_MAGIC 0x53504B32u
 
 #define SIM_FRAME_INTERVAL 6
 #define SHOT_WARMUP_STEPS 400
@@ -110,6 +114,44 @@ static bool mouseToTile(Vector2 mouse, int *tx, int *ty)
     return true;
 }
 
+static bool loadGame(CatAgent *agent, CatGenome *genome, CatBody *body,
+                     int *pets, RoomItem *items, int *itemCount)
+{
+    FILE *file = fopen(SAVE_PATH, "rb");
+    if (!file) return false;
+
+    uint32_t magic = 0;
+    bool ok = fread(&magic, sizeof(magic), 1, file) == 1 && magic == SAVE_MAGIC;
+    if (ok) ok = fread(genome, sizeof(*genome), 1, file) == 1;
+    if (ok) ok = fread(&agent->net, sizeof(agent->net), 1, file) == 1;
+    if (ok) ok = fread(body, sizeof(*body), 1, file) == 1;
+    if (ok) ok = fread(pets, sizeof(*pets), 1, file) == 1;
+    if (ok) ok = fread(itemCount, sizeof(*itemCount), 1, file) == 1;
+    if (ok && (*itemCount < 0 || *itemCount > MAX_ITEMS)) ok = false;
+    if (ok && *itemCount > 0) ok = fread(items, sizeof(RoomItem) * (*itemCount), 1, file) == 1;
+
+    fclose(file);
+    return ok;
+}
+
+static void saveGame(const CatAgent *agent, const CatGenome *genome, const CatBody *body,
+                     int pets, const RoomItem *items, int itemCount)
+{
+    FILE *file = fopen(SAVE_PATH, "wb");
+    if (!file) return;
+
+    uint32_t magic = SAVE_MAGIC;
+    fwrite(&magic, sizeof(magic), 1, file);
+    fwrite(genome, sizeof(*genome), 1, file);
+    fwrite(&agent->net, sizeof(agent->net), 1, file);
+    fwrite(body, sizeof(*body), 1, file);
+    fwrite(&pets, sizeof(pets), 1, file);
+    fwrite(&itemCount, sizeof(itemCount), 1, file);
+    if (itemCount > 0) fwrite(items, sizeof(RoomItem) * itemCount, 1, file);
+
+    fclose(file);
+}
+
 int RunShot(void)
 {
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
@@ -166,16 +208,25 @@ int RunGame(void)
     World *world = malloc(sizeof(World));
     if (!agent || !world) { CloseWindow(); return 1; }
 
-    AgentInit(agent, nextSeed());
     WorldInitRoom(world, nextSeed());
-    PixelCat cat = PixelCatCreate(CatGenomeRandom(nextSeed()));
 
+    CatGenome genome;
     CatBody body;
-    CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
-    CatView view = viewAt(&body);
-
     RoomItem items[MAX_ITEMS];
-    int itemCount = resetRoom(items);
+    int itemCount = 0;
+    int savedPets = 0;
+
+    if (!loadGame(agent, &genome, &body, &savedPets, items, &itemCount))
+    {
+        AgentInit(agent, nextSeed());
+        genome = CatGenomeRandom(nextSeed());
+        CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+        itemCount = resetRoom(items);
+    }
+
+    PixelCat cat = PixelCatCreate(genome);
+    CatView view = viewAt(&body);
+    view.pets = savedPets;
 
     float voice = 0.0f;
     int frame = 0;
@@ -192,6 +243,9 @@ int RunGame(void)
         if (IsKeyPressed(KEY_R))
         {
             AgentInit(agent, nextSeed());
+            PixelCatUnload(&cat);
+            genome = CatGenomeRandom(nextSeed());
+            cat = PixelCatCreate(genome);
             WorldInitRoom(world, nextSeed());
             CatBodyInit(&body, WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
             view = viewAt(&body);
@@ -304,6 +358,7 @@ int RunGame(void)
         RenderScene(agent, &body, &view, &cat, voice, world, items, itemCount, dragItem, showBrain, GetTime());
     }
 
+    saveGame(agent, &genome, &body, view.pets, items, itemCount);
     PixelCatUnload(&cat);
     free(agent); free(world);
     CloseWindow();
