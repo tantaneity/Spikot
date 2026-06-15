@@ -113,7 +113,25 @@ CatAction AgentAct(CatAgent *agent, World *world, CatBody *body,
     {
         float advantage = reward - agent->rewardBaseline;
         agent->rewardBaseline += LEARNING_BASELINE_RATE * (reward - agent->rewardBaseline);
-        NetworkApplyReward(&agent->net, advantage);
+
+        float weights[ACTION_COUNT];
+        float total = 0.0f;
+        for (int a = 0; a < ACTION_COUNT; a++)
+        {
+            weights[a] = (float)agent->actionSpikes[a] + BRAIN_EXPLORE_BASE;
+            total += weights[a];
+        }
+
+        float modulation[SNN_NEURON_COUNT];
+        memset(modulation, 0, sizeof(modulation));
+        for (int a = 0; a < ACTION_COUNT; a++)
+        {
+            float chosen = (a == (int)action) ? 1.0f : 0.0f;
+            float credit = advantage * (chosen - weights[a] / total);
+            int base = ACTION_BASE + a * BRAIN_OUTPUT_GROUP;
+            for (int n = 0; n < BRAIN_OUTPUT_GROUP; n++) modulation[base + n] = credit;
+        }
+        NetworkApplyReadoutReward(&agent->net, modulation);
     }
 
     agent->lastReward = reward;

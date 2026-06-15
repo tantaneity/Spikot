@@ -177,6 +177,27 @@ void NetworkApplyReward(Network *network, float reward)
     normalizeIncoming(network);
 }
 
+void NetworkApplyReadoutReward(Network *network, const float *modulation)
+{
+    for (int pre = 0; pre < N; pre++)
+    {
+        for (int e = network->rowStart[pre]; e < network->rowStart[pre + 1]; e++)
+        {
+            int post = network->edgePost[e];
+            float credit = modulation[post];
+            if (credit == 0.0f) continue;
+
+            float weight = network->weights[pre][post] +
+                           SNN_READOUT_RATE * credit * network->eligibility[pre][post];
+            if (weight < 0.0f) weight = 0.0f;
+            else if (weight > SNN_WEIGHT_MAX) weight = SNN_WEIGHT_MAX;
+            network->weights[pre][post] = weight;
+        }
+    }
+
+    normalizeIncoming(network);
+}
+
 void NetworkStep(Network *network, const float *externalInput)
 {
     accumulateCurrent(network, externalInput);

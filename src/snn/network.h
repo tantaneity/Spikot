@@ -22,6 +22,7 @@ typedef struct {
 void NetworkInit(Network *network, uint32_t seed);
 void NetworkStep(Network *network, const float *externalInput);
 void NetworkApplyReward(Network *network, float reward);
+void NetworkApplyReadoutReward(Network *network, const float *modulation);
 int NetworkSpikeCount(const Network *network);
 
 #endif
