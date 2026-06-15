@@ -86,24 +86,36 @@ void NetworkInit(Network *network, uint32_t seed)
         for (int pre = 0; pre < N; pre++) incoming += network->weights[pre][post];
         network->homeostasisTarget[post] = incoming;
     }
+
+    int edge = 0;
+    for (int pre = 0; pre < N; pre++)
+    {
+        network->rowStart[pre] = edge;
+        for (int post = 0; post < N; post++)
+            if (network->weights[pre][post] != 0.0f && edge < SNN_MAX_EDGES)
+                network->edgePost[edge++] = post;
+    }
+    network->rowStart[N] = edge;
 }
 
 static void normalizeIncoming(Network *network)
 {
-    for (int post = 0; post < N; post++)
+    float incoming[N];
+    for (int post = 0; post < N; post++) incoming[post] = 0.0f;
+
+    for (int pre = 0; pre < N; pre++)
+        for (int e = network->rowStart[pre]; e < network->rowStart[pre + 1]; e++)
+            incoming[network->edgePost[e]] += network->weights[pre][network->edgePost[e]];
+
+    for (int pre = 0; pre < N; pre++)
     {
-        float target = network->homeostasisTarget[post];
-        if (target <= 0.0f) continue;
-
-        float incoming = 0.0f;
-        for (int pre = 0; pre < N; pre++) incoming += network->weights[pre][post];
-        if (incoming <= 0.0f) continue;
-
-        float scale = target / incoming;
-        for (int pre = 0; pre < N; pre++)
+        for (int e = network->rowStart[pre]; e < network->rowStart[pre + 1]; e++)
         {
-            if (network->weights[pre][post] == 0.0f) continue;
-            float weight = network->weights[pre][post] * scale;
+            int post = network->edgePost[e];
+            float target = network->homeostasisTarget[post];
+            if (target <= 0.0f || incoming[post] <= 0.0f) continue;
+
+            float weight = network->weights[pre][post] * (target / incoming[post]);
             if (weight > SNN_WEIGHT_MAX) weight = SNN_WEIGHT_MAX;
             network->weights[pre][post] = weight;
         }
@@ -118,10 +130,13 @@ static void accumulateCurrent(Network *network, const float *externalInput)
     for (int pre = 0; pre < N; pre++)
     {
         if (!network->spiked[pre]) continue;
-        const float *outgoing = network->weights[pre];
         float sign = network->inhibitory[pre] ? -SNN_INHIBITORY_GAIN : 1.0f;
-        for (int post = 0; post < N; post++)
+        const float *outgoing = network->weights[pre];
+        for (int e = network->rowStart[pre]; e < network->rowStart[pre + 1]; e++)
+        {
+            int post = network->edgePost[e];
             network->current[post] += outgoing[post] * sign;
+        }
     }
 }
 
@@ -130,13 +145,12 @@ static void accumulateEligibility(Network *network, const bool *fired)
     for (int pre = 0; pre < N; pre++)
     {
         float preTrace = network->trace[pre];
-        bool preFired = fired[pre];
-        for (int post = 0; post < N; post++)
+        float preFired = fired[pre] ? 1.0f : 0.0f;
+        for (int e = network->rowStart[pre]; e < network->rowStart[pre + 1]; e++)
         {
-            if (network->weights[pre][post] == 0.0f) continue;
-
+            int post = network->edgePost[e];
             float potentiation = SNN_STDP_POTENTIATION * preTrace * (fired[post] ? 1.0f : 0.0f);
-            float depression = SNN_STDP_DEPRESSION * network->trace[post] * (preFired ? 1.0f : 0.0f);
+            float depression = SNN_STDP_DEPRESSION * network->trace[post] * preFired;
             network->eligibility[pre][post] =
                 network->eligibility[pre][post] * SNN_ELIGIBILITY_DECAY + (potentiation - depression);
         }
@@ -149,12 +163,11 @@ void NetworkApplyReward(Network *network, float reward)
 
     for (int pre = 0; pre < N; pre++)
     {
-        for (int post = 0; post < N; post++)
+        for (int e = network->rowStart[pre]; e < network->rowStart[pre + 1]; e++)
         {
-            float weight = network->weights[pre][post];
-            if (weight == 0.0f) continue;
-
-            weight += SNN_LEARNING_RATE * reward * network->eligibility[pre][post];
+            int post = network->edgePost[e];
+            float weight = network->weights[pre][post] +
+                           SNN_LEARNING_RATE * reward * network->eligibility[pre][post];
             if (weight < 0.0f) weight = 0.0f;
             else if (weight > SNN_WEIGHT_MAX) weight = SNN_WEIGHT_MAX;
             network->weights[pre][post] = weight;

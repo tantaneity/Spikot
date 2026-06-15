@@ -15,6 +15,8 @@ typedef struct {
     float weights[SNN_NEURON_COUNT][SNN_NEURON_COUNT];
     float eligibility[SNN_NEURON_COUNT][SNN_NEURON_COUNT];
     float homeostasisTarget[SNN_NEURON_COUNT];
+    int rowStart[SNN_NEURON_COUNT + 1];
+    int edgePost[SNN_MAX_EDGES];
 } Network;
 
 void NetworkInit(Network *network, uint32_t seed);
