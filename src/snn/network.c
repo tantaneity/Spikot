@@ -4,6 +4,37 @@
 
 #define N SNN_NEURON_COUNT
 #define DEFAULT_SEED 0x9E3779B9u
+#define OUTPUT_BEGIN (SNN_NEURON_COUNT - SNN_OUTPUT_NEURONS)
+
+typedef enum { LAYER_INPUT, LAYER_HIDDEN, LAYER_OUTPUT } Layer;
+
+static Layer layerOf(int index)
+{
+    if (index < SNN_INPUT_NEURONS) return LAYER_INPUT;
+    if (index >= OUTPUT_BEGIN) return LAYER_OUTPUT;
+    return LAYER_HIDDEN;
+}
+
+static float connectionProb(int pre, int post)
+{
+    Layer from = layerOf(pre);
+    Layer to = layerOf(post);
+
+    if (from == LAYER_INPUT)
+    {
+        if (to == LAYER_HIDDEN) return SNN_CONN_IN_HID;
+        if (to == LAYER_OUTPUT) return SNN_CONN_IN_OUT;
+        return 0.0f;
+    }
+    if (from == LAYER_HIDDEN)
+    {
+        if (to == LAYER_HIDDEN) return SNN_CONN_HID_HID;
+        if (to == LAYER_OUTPUT) return SNN_CONN_HID_OUT;
+        return 0.0f;
+    }
+    if (to == LAYER_HIDDEN) return SNN_CONN_OUT_HID;
+    return 0.0f;
+}
 
 static uint32_t xorshift32(uint32_t *state)
 {
@@ -32,13 +63,16 @@ void NetworkInit(Network *network, uint32_t seed)
     memset(network->current, 0, sizeof(network->current));
 
     for (int neuron = 0; neuron < N; neuron++)
-        network->inhibitory[neuron] = randomUnit(&state) < SNN_INHIBITORY_FRACTION;
+        network->inhibitory[neuron] =
+            (layerOf(neuron) == LAYER_HIDDEN) && (randomUnit(&state) < SNN_INHIBITORY_FRACTION);
 
     for (int pre = 0; pre < N; pre++)
     {
+        bool inhibitsOutput = network->inhibitory[pre];
         for (int post = 0; post < N; post++)
         {
-            if (pre != post && randomUnit(&state) < SNN_CONNECTION_PROB)
+            bool blocked = inhibitsOutput && layerOf(post) == LAYER_OUTPUT;
+            if (!blocked && pre != post && randomUnit(&state) < connectionProb(pre, post))
                 network->weights[pre][post] = randomUnit(&state) * SNN_WEIGHT_INIT_MAX;
             else
                 network->weights[pre][post] = 0.0f;
